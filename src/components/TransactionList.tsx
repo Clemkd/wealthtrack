@@ -1,6 +1,6 @@
 import { Transaction } from '../types/database';
 import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Trash2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { deleteTransaction } from '../lib/storage';
 
 interface TransactionListProps {
   transactions: Transaction[];
@@ -8,16 +8,13 @@ interface TransactionListProps {
 }
 
 export default function TransactionList({ transactions, onUpdate }: TransactionListProps) {
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette transaction?')) {
       return;
     }
 
-    const { error } = await supabase.from('transactions').delete().eq('id', id);
-
-    if (!error) {
-      onUpdate();
-    }
+    deleteTransaction(id);
+    onUpdate();
   };
 
   const getTypeIcon = (type: string) => {

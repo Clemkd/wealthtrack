@@ -1,43 +1,67 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { useState, useEffect, useRef } from 'react';
+import { getTransactions } from '../lib/storage';
+import { exportToZip, importFromZip } from '../lib/importExport';
 import { Transaction } from '../types/database';
 import TransactionForm from './TransactionForm';
 import TransactionList from './TransactionList';
 import PortfolioStats from './PortfolioStats';
 import PerformanceChart from './PerformanceChart';
 import TaxReport from './TaxReport';
-import { Plus, LogOut, BarChart3, History, FileText } from 'lucide-react';
+import { Plus, BarChart3, History, FileText, Download, Upload } from 'lucide-react';
 
 type TabType = 'overview' | 'history' | 'charts' | 'tax';
 
 export default function Dashboard() {
-  const { user, signOut } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadTransactions();
   }, []);
 
-  const loadTransactions = async () => {
+  const loadTransactions = () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .order('transaction_date', { ascending: false });
-
-    if (!error && data) {
-      setTransactions(data);
-    }
+    const data = getTransactions();
+    data.sort(
+      (a, b) =>
+        new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
+    );
+    setTransactions(data);
     setLoading(false);
   };
 
   const handleFormSuccess = () => {
     setShowForm(false);
     loadTransactions();
+  };
+
+  const handleExport = async () => {
+    await exportToZip();
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportError('');
+    try {
+      await importFromZip(file);
+      loadTransactions();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Erreur lors de l\'import');
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const tabs = [
@@ -54,22 +78,37 @@ export default function Dashboard() {
           <div className="flex justify-between items-center py-4">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">Portfolio Crypto</h1>
-              <p className="text-sm text-gray-600 truncate">{user?.email}</p>
             </div>
             <div className="flex gap-2 sm:gap-3 shrink-0">
+              <button
+                onClick={handleExport}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                title="Exporter les données"
+              >
+                <Download className="w-5 h-5" />
+                <span className="hidden sm:inline">Exporter</span>
+              </button>
+              <button
+                onClick={handleImportClick}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                title="Importer des données"
+              >
+                <Upload className="w-5 h-5" />
+                <span className="hidden sm:inline">Importer</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip"
+                onChange={handleImportFile}
+                className="hidden"
+              />
               <button
                 onClick={() => setShowForm(true)}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-colors shadow-sm"
               >
                 <Plus className="w-5 h-5" />
                 <span className="hidden sm:inline">Nouvelle transaction</span>
-              </button>
-              <button
-                onClick={signOut}
-                className="flex items-center gap-2 px-3 sm:px-6 py-2.5 sm:py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-                <span className="hidden sm:inline">Déconnexion</span>
               </button>
             </div>
           </div>
@@ -97,6 +136,11 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {importError && (
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            {importError}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
