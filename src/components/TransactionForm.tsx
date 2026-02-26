@@ -46,6 +46,7 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement');
+    } finally {
       setLoading(false);
     }
   };
