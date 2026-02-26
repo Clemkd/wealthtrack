@@ -43,8 +43,11 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
 
       if (priceCurrency === 'USD') {
         const usdToEur = await getUsdToEurRate();
-        priceEur = usdToEur ? priceNum * usdToEur : priceNum;
-        totalEur = usdToEur ? totalInput * usdToEur : totalInput;
+        if (!usdToEur) {
+          throw new Error('Impossible de récupérer le taux de change USD/EUR. Veuillez réessayer.');
+        }
+        priceEur = priceNum * usdToEur;
+        totalEur = totalInput * usdToEur;
         priceUsd = priceNum;
         totalUsd = totalInput;
       } else {

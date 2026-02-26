@@ -28,6 +28,6 @@ export async function getEurToUsdRate(): Promise<number | null> {
 
 export async function getUsdToEurRate(): Promise<number | null> {
   const eurToUsd = await getEurToUsdRate();
-  if (eurToUsd == null || eurToUsd === 0) return null;
+  if (eurToUsd === null || eurToUsd === 0) return null;
   return 1 / eurToUsd;
 }
