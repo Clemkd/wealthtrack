@@ -1,14 +1,16 @@
 # WealthTrack – Gestion de Portefeuille Crypto & Déclaration Fiscale
 
-WealthTrack est une application web permettant de suivre ses investissements en cryptomonnaies, d'analyser les performances de son portefeuille et de générer des rapports fiscaux sur les plus-values et moins-values réalisées.
+WealthTrack est une application web permettant de suivre ses investissements en cryptomonnaies, d'analyser les performances de son portefeuille et de générer des rapports fiscaux sur les plus-values et moins-values réalisées. Les données sont stockées localement dans le navigateur (localStorage) — aucun serveur ni compte requis.
 
 ## Fonctionnalités
 
-- **Authentification sécurisée** – Inscription et connexion par email/mot de passe via Supabase Auth.
 - **Gestion des transactions** – Enregistrement des achats, ventes et échanges (swap) avec date, montant, prix unitaire et notes.
+- **Double affichage EUR / USD** – Les valeurs sont affichées en euros et en dollars grâce au taux de change en temps réel (API Frankfurter).
 - **Vue d'ensemble du portefeuille** – Consultation des avoirs actuels avec quantité, prix moyen d'achat et valeur investie.
 - **Graphiques de performance** – Visualisation de l'évolution du portefeuille dans le temps.
 - **Rapport fiscal** – Calcul automatique des plus-values et moins-values par année, utile pour la déclaration d'impôts.
+- **Import / Export** – Export des transactions au format ZIP (CSV) et import depuis un fichier ZIP.
+- **Sauvegarde Google Drive** – Sauvegarde et restauration automatique ou manuelle des données via Google Drive (appDataFolder).
 - **Interface responsive** – Design moderne avec Tailwind CSS, utilisable sur ordinateur et mobile.
 
 ## Stack technique
@@ -18,14 +20,17 @@ WealthTrack est une application web permettant de suivre ses investissements en 
 | Frontend | React 18, TypeScript, Vite 5 |
 | Styles | Tailwind CSS 3, PostCSS, Autoprefixer |
 | Icônes | Lucide React |
-| Backend / BDD | Supabase (PostgreSQL, Auth, Row-Level Security) |
+| Stockage | localStorage (navigateur) |
+| Import / Export | JSZip (CSV dans archive ZIP) |
+| Taux de change | API Frankfurter (EUR → USD, cache 1 h) |
+| Sauvegarde cloud | Google Identity Services + Google Drive REST API |
 | Qualité de code | ESLint 9, TypeScript strict |
+| Déploiement | GitHub Pages (workflow GitHub Actions) |
 
 ## Prérequis
 
 - [Node.js](https://nodejs.org/) ≥ 18
 - [npm](https://www.npmjs.com/) ≥ 9
-- Un projet [Supabase](https://supabase.com/) (gratuit)
 
 ## Installation
 
@@ -40,25 +45,20 @@ npm install
 
 ## Configuration
 
-Créer un fichier `.env` à la racine du projet avec les variables suivantes :
+La configuration est optionnelle. Pour activer la sauvegarde Google Drive, créer un fichier `.env` à la racine du projet (voir `.env.example`) :
 
 ```env
-VITE_SUPABASE_URL=https://<votre-projet>.supabase.co
-VITE_SUPABASE_ANON_KEY=<votre-clé-anon>
+VITE_GOOGLE_CLIENT_ID=<votre-client-id-google>
 ```
 
-Ces valeurs sont disponibles dans les paramètres de votre projet Supabase, section **API**.
+Pour obtenir un Client ID :
 
-### Base de données
+1. Créer un projet sur [Google Cloud Console](https://console.cloud.google.com)
+2. Activer l'API Google Drive
+3. Créer des identifiants OAuth 2.0
+4. Ajouter l'URL de l'application dans les origines JavaScript autorisées
 
-Appliquer la migration SQL située dans `supabase/migrations/` pour créer la table `transactions` ainsi que les politiques de sécurité (RLS) :
-
-```bash
-# Via le CLI Supabase
-npx supabase db push
-```
-
-Ou exécuter manuellement le fichier `supabase/migrations/20260130191228_create_portfolio_schema.sql` dans l'éditeur SQL de Supabase.
+> **Note :** L'application fonctionne entièrement sans cette configuration. La sauvegarde Google Drive est une fonctionnalité optionnelle. Le Client ID peut également être renseigné directement dans l'interface.
 
 ## Utilisation
 
@@ -86,24 +86,28 @@ wealthtrack/
 ├── public/                  # Fichiers statiques
 ├── src/
 │   ├── components/          # Composants React
-│   │   ├── Auth.tsx             # Connexion / Inscription
-│   │   ├── Dashboard.tsx        # Tableau de bord principal (onglets)
+│   │   ├── Dashboard.tsx        # Tableau de bord principal (onglets, import/export)
 │   │   ├── TransactionForm.tsx  # Formulaire d'ajout de transaction
-│   │   ├── TransactionList.tsx  # Historique des transactions
+│   │   ├── TransactionList.tsx  # Historique des transactions (EUR & USD)
 │   │   ├── PortfolioStats.tsx   # Statistiques du portefeuille
 │   │   ├── PerformanceChart.tsx # Graphiques de performance
-│   │   └── TaxReport.tsx        # Rapport fiscal
-│   ├── contexts/
-│   │   └── AuthContext.tsx      # Contexte d'authentification React
+│   │   ├── TaxReport.tsx        # Rapport fiscal
+│   │   ├── GoogleDriveBackup.tsx # Sauvegarde / restauration Google Drive
+│   │   ├── ErrorBoundary.tsx    # Capture des erreurs React
+│   │   └── ErrorModal.tsx       # Modale d'erreur réutilisable
 │   ├── lib/
-│   │   └── supabase.ts         # Client Supabase
+│   │   ├── storage.ts           # CRUD transactions (localStorage)
+│   │   ├── importExport.ts      # Export/import ZIP (CSV)
+│   │   ├── exchangeRate.ts      # Taux EUR/USD (API Frankfurter)
+│   │   └── googleDrive.ts       # Client Google Drive (backup/restore)
 │   ├── types/
-│   │   └── database.ts         # Types TypeScript (schéma BDD)
+│   │   └── database.ts         # Types TypeScript (Transaction)
 │   ├── App.tsx              # Composant racine
 │   ├── main.tsx             # Point d'entrée
 │   └── index.css            # Styles globaux (Tailwind)
-├── supabase/
-│   └── migrations/          # Migrations SQL
+├── .github/
+│   └── workflows/
+│       └── deploy.yml       # Déploiement GitHub Pages
 ├── index.html               # Page HTML d'entrée
 ├── vite.config.ts           # Configuration Vite
 ├── tailwind.config.js       # Configuration Tailwind CSS
@@ -111,26 +115,33 @@ wealthtrack/
 └── package.json             # Dépendances et scripts
 ```
 
-## Schéma de la base de données
+## Modèle de données
 
-### Table `transactions`
+Les transactions sont stockées dans le `localStorage` du navigateur sous la clé `wealthtrack_transactions`.
 
-| Colonne | Type | Description |
+### Transaction
+
+| Champ | Type | Description |
 |---|---|---|
-| `id` | `uuid` | Identifiant unique (clé primaire) |
-| `user_id` | `uuid` | Référence à l'utilisateur authentifié |
-| `transaction_type` | `text` | Type : `buy`, `sell` ou `swap` |
-| `currency_from` | `text` | Devise source (pour les swaps) |
-| `currency_to` | `text` | Devise/crypto de destination |
-| `amount` | `decimal(20,8)` | Quantité échangée |
-| `price_per_unit` | `decimal(20,8)` | Prix unitaire en EUR |
-| `total_value` | `decimal(20,8)` | Valeur totale en EUR |
-| `transaction_date` | `timestamptz` | Date de la transaction |
-| `notes` | `text` | Notes optionnelles |
-| `created_at` | `timestamptz` | Date de création de l'enregistrement |
-| `updated_at` | `timestamptz` | Date de dernière mise à jour |
+| `id` | `string` | Identifiant unique (UUID) |
+| `transaction_type` | `'buy' \| 'sell' \| 'swap'` | Type de transaction |
+| `currency_from` | `string \| null` | Devise source (pour les swaps) |
+| `currency_to` | `string` | Devise/crypto de destination |
+| `amount` | `number` | Quantité échangée |
+| `price_per_unit` | `number` | Prix unitaire en EUR |
+| `total_value` | `number` | Valeur totale en EUR |
+| `price_per_unit_usd` | `number \| null` | Prix unitaire en USD |
+| `total_value_usd` | `number \| null` | Valeur totale en USD |
+| `transaction_date` | `string` | Date de la transaction (ISO 8601) |
+| `notes` | `string` | Notes optionnelles |
+| `created_at` | `string` | Date de création (ISO 8601) |
+| `updated_at` | `string` | Date de dernière mise à jour (ISO 8601) |
 
-La sécurité au niveau des lignes (RLS) garantit que chaque utilisateur accède uniquement à ses propres transactions.
+## Déploiement
+
+L'application est automatiquement déployée sur **GitHub Pages** à chaque push sur la branche `main` via le workflow `.github/workflows/deploy.yml`.
+
+Le secret `VITE_GOOGLE_CLIENT_ID` doit être configuré dans **Settings > Secrets and variables > Actions** du dépôt pour activer la sauvegarde Google Drive en production.
 
 ## Contribution
 
