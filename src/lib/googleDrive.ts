@@ -7,6 +7,7 @@ const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload';
 const BACKUP_FILENAME = 'wealthtrack_backup.json';
 const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 const SETTINGS_KEY = 'wealthtrack_gdrive_settings';
+const TOKEN_KEY = 'wealthtrack_gdrive_token';
 
 export interface GDriveSettings {
   autoBackup: boolean;
@@ -26,6 +27,46 @@ interface DriveFileList {
 
 let accessToken: string | null = null;
 let tokenExpiresAt = 0;
+
+// --- Token Persistence ---
+
+function persistToken(): void {
+  if (accessToken && tokenExpiresAt > Date.now()) {
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ accessToken, tokenExpiresAt }));
+  } else {
+    sessionStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+function clearPersistedToken(): void {
+  sessionStorage.removeItem(TOKEN_KEY);
+}
+
+export function restoreSession(): boolean {
+  if (accessToken && Date.now() < tokenExpiresAt) return true;
+  const raw = sessionStorage.getItem(TOKEN_KEY);
+  if (!raw) return false;
+  try {
+    const data: unknown = JSON.parse(raw);
+    if (
+      typeof data === 'object' && data !== null &&
+      'accessToken' in data && typeof (data as Record<string, unknown>).accessToken === 'string' &&
+      'tokenExpiresAt' in data && typeof (data as Record<string, unknown>).tokenExpiresAt === 'number'
+    ) {
+      const parsed = data as { accessToken: string; tokenExpiresAt: number };
+      if (parsed.tokenExpiresAt > Date.now()) {
+        accessToken = parsed.accessToken;
+        tokenExpiresAt = parsed.tokenExpiresAt;
+        return true;
+      }
+    }
+    clearPersistedToken();
+    return false;
+  } catch {
+    clearPersistedToken();
+    return false;
+  }
+}
 
 // --- Settings ---
 
@@ -83,6 +124,7 @@ export function handleRedirectResponse(): boolean {
   if (token && expiresIn) {
     accessToken = token;
     tokenExpiresAt = Date.now() + parseInt(expiresIn, 10) * 1000;
+    persistToken();
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     return true;
   }
@@ -112,6 +154,7 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
         }
         accessToken = response.access_token;
         tokenExpiresAt = Date.now() + response.expires_in * 1000;
+        persistToken();
         resolve(response.access_token);
       },
     };
@@ -136,6 +179,7 @@ export function signOut(): void {
   }
   accessToken = null;
   tokenExpiresAt = 0;
+  clearPersistedToken();
 }
 
 // --- Drive API Helpers ---
@@ -161,6 +205,7 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
     if (response.status === 401) {
       accessToken = null;
       tokenExpiresAt = 0;
+      clearPersistedToken();
       throw new Error('Session expirée. Veuillez vous reconnecter.');
     }
     throw new Error(`Erreur Google Drive (${response.status})`);
