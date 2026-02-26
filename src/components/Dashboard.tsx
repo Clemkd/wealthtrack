@@ -7,6 +7,7 @@ import TransactionList from './TransactionList';
 import PortfolioStats from './PortfolioStats';
 import PerformanceChart from './PerformanceChart';
 import TaxReport from './TaxReport';
+import GoogleDriveBackup from './GoogleDriveBackup';
 import { Plus, BarChart3, History, FileText, Download, Upload } from 'lucide-react';
 
 type TabType = 'overview' | 'history' | 'charts' | 'tax';
@@ -80,6 +81,7 @@ export default function Dashboard() {
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">Portfolio Crypto</h1>
             </div>
             <div className="flex gap-2 sm:gap-3 shrink-0">
+              <GoogleDriveBackup transactions={transactions} onRestore={loadTransactions} />
               <button
                 onClick={handleExport}
                 className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
