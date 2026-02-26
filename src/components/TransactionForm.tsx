@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { addTransaction } from '../lib/storage';
 import { TransactionType } from '../types/database';
+import { getEurToUsdRate } from '../lib/exchangeRate';
 import { X, Plus } from 'lucide-react';
 
 interface TransactionFormProps {
@@ -32,6 +33,10 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
       const priceNum = parseFloat(pricePerUnit);
       const totalValue = amountNum * priceNum;
 
+      const eurToUsd = await getEurToUsdRate();
+      const pricePerUnitUsd = eurToUsd ? priceNum * eurToUsd : null;
+      const totalValueUsd = eurToUsd ? totalValue * eurToUsd : null;
+
       addTransaction({
         transaction_type: transactionType,
         currency_from: transactionType === 'swap' ? currencyFrom : null,
@@ -39,6 +44,8 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
         amount: amountNum,
         price_per_unit: priceNum,
         total_value: totalValue,
+        price_per_unit_usd: pricePerUnitUsd,
+        total_value_usd: totalValueUsd,
         transaction_date: new Date(transactionDate).toISOString(),
         notes: notes,
       });
