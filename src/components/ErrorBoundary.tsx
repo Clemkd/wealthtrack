@@ -8,18 +8,21 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   error: string | null;
   stackTrace: string | null;
+  hasRenderError: boolean;
+  childKey: number;
 }
 
 export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { error: null, stackTrace: null };
+    this.state = { error: null, stackTrace: null, hasRenderError: false, childKey: 0 };
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return {
       error: error.message || 'Une erreur inattendue est survenue.',
       stackTrace: error.stack || null,
+      hasRenderError: true,
     };
   }
 
@@ -49,13 +52,20 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   };
 
   handleClose = () => {
-    this.setState({ error: null, stackTrace: null });
+    this.setState((prev) => ({
+      error: null,
+      stackTrace: null,
+      hasRenderError: false,
+      childKey: prev.hasRenderError ? prev.childKey + 1 : prev.childKey,
+    }));
   };
 
   render() {
     return (
       <>
-        {this.props.children}
+        {this.state.hasRenderError ? null : (
+          <div key={this.state.childKey}>{this.props.children}</div>
+        )}
         {this.state.error && (
           <ErrorModal
             error={this.state.error}
