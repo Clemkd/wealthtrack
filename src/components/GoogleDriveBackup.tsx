@@ -15,6 +15,8 @@ import {
   GDriveSettings,
 } from '../lib/googleDrive';
 
+const AUTO_BACKUP_DEBOUNCE_MS = 3000;
+
 interface GoogleDriveBackupProps {
   transactions: Transaction[];
   onRestore: () => void;
@@ -66,7 +68,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       } catch (e) {
         console.error('Erreur lors de la sauvegarde automatique:', e);
       }
-    }, 3000);
+    }, AUTO_BACKUP_DEBOUNCE_MS);
 
     return () => {
       if (backupTimerRef.current) {

@@ -30,9 +30,14 @@ let tokenExpiresAt = 0;
 // --- Settings ---
 
 export function getGDriveSettings(): GDriveSettings {
+  const defaults: GDriveSettings = { autoBackup: false, lastBackupDate: null, clientId: '' };
   const raw = localStorage.getItem(SETTINGS_KEY);
-  if (!raw) return { autoBackup: false, lastBackupDate: null, clientId: '' };
-  return JSON.parse(raw) as GDriveSettings;
+  if (!raw) return defaults;
+  try {
+    return JSON.parse(raw) as GDriveSettings;
+  } catch {
+    return defaults;
+  }
 }
 
 export function saveGDriveSettings(settings: GDriveSettings): void {
@@ -212,7 +217,13 @@ export async function restoreFromDrive(): Promise<Transaction[]> {
   if (!file) throw new Error('Aucune sauvegarde trouvée sur Google Drive');
 
   const content = await readBackupFile(file.id);
-  const data = JSON.parse(content);
+
+  let data: { transactions?: unknown };
+  try {
+    data = JSON.parse(content);
+  } catch {
+    throw new Error('Le fichier de sauvegarde est corrompu');
+  }
 
   if (!data.transactions || !Array.isArray(data.transactions)) {
     throw new Error('Le fichier de sauvegarde est invalide');
