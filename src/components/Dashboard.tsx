@@ -52,43 +52,43 @@ export default function Dashboard() {
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Portfolio Crypto</h1>
-              <p className="text-sm text-gray-600">{user?.email}</p>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">Portfolio Crypto</h1>
+              <p className="text-sm text-gray-600 truncate">{user?.email}</p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2 sm:gap-3 shrink-0">
               <button
                 onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors shadow-sm"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-colors shadow-sm"
               >
                 <Plus className="w-5 h-5" />
-                Nouvelle transaction
+                <span className="hidden sm:inline">Nouvelle transaction</span>
               </button>
               <button
                 onClick={signOut}
-                className="flex items-center gap-2 px-6 py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-2 px-3 sm:px-6 py-2.5 sm:py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <LogOut className="w-5 h-5" />
-                Déconnexion
+                <span className="hidden sm:inline">Déconnexion</span>
               </button>
             </div>
           </div>
 
-          <nav className="flex gap-1 -mb-px">
+          <nav className="flex gap-1 -mb-px overflow-x-auto">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors border-b-2 ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-3 font-medium transition-colors border-b-2 whitespace-nowrap text-sm sm:text-base ${
                     activeTab === tab.id
                       ? 'border-blue-600 text-blue-600'
                       : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
-                  {tab.label}
+                  <Icon className="w-5 h-5 shrink-0" />
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               );
             })}

@@ -175,20 +175,20 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
         </svg>
       </div>
 
-      <div className="mt-6 grid grid-cols-3 gap-4">
-        <div className="bg-blue-50 rounded-lg p-4">
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-blue-50 rounded-lg p-3 sm:p-4">
           <p className="text-sm text-blue-600 font-medium mb-1">Investissement total</p>
-          <p className="text-2xl font-bold text-blue-900">
+          <p className="text-xl sm:text-2xl font-bold text-blue-900">
             {formatValue(chartData[chartData.length - 1]?.cumulativeValue || 0)}
           </p>
         </div>
-        <div className="bg-green-50 rounded-lg p-4">
+        <div className="bg-green-50 rounded-lg p-3 sm:p-4">
           <p className="text-sm text-green-600 font-medium mb-1">Plus haut</p>
-          <p className="text-2xl font-bold text-green-900">{formatValue(maxValue)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-green-900">{formatValue(maxValue)}</p>
         </div>
-        <div className="bg-orange-50 rounded-lg p-4">
+        <div className="bg-orange-50 rounded-lg p-3 sm:p-4">
           <p className="text-sm text-orange-600 font-medium mb-1">Transactions</p>
-          <p className="text-2xl font-bold text-orange-900">{chartData.length}</p>
+          <p className="text-xl sm:text-2xl font-bold text-orange-900">{chartData.length}</p>
         </div>
       </div>
     </div>
