@@ -7,8 +7,8 @@
     <script>
       // SPA fallback for GitHub Pages
       // Redirects all 404s back to index.html
-      var pathSegmentsToKeep = 1;
-      var l = window.location;
+      const pathSegmentsToKeep = 1;
+      const l = window.location;
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
         l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/'
