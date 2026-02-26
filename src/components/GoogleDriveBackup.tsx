@@ -4,6 +4,7 @@ import { Transaction } from '../types/database';
 import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
+  handleRedirectResponse,
   signIn,
   signOut,
   isSignedIn,
@@ -35,12 +36,26 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const mountedRef = useRef(false);
   const backupTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  const [showRedirectOption, setShowRedirectOption] = useState(false);
+
   const envClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const effectiveClientId = envClientId || settings.clientId;
 
   useEffect(() => {
     initGoogleDrive()
-      .then(() => setGisLoaded(true))
+      .then(() => {
+        setGisLoaded(true);
+        if (handleRedirectResponse()) {
+          setConnected(true);
+          getBackupInfo()
+            .then((info) => {
+              if (info) setLastBackup(info.modifiedTime);
+            })
+            .catch((err) => {
+              console.warn('Impossible de récupérer les infos de sauvegarde:', err);
+            });
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -77,7 +92,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     };
   }, [transactions, settings.autoBackup, connected]);
 
-  const handleConnect = async () => {
+  const handleConnect = async (useRedirect = false) => {
     if (!effectiveClientId) {
       setError('Veuillez configurer un Client ID Google');
       return;
@@ -85,8 +100,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     setLoading(true);
     setError('');
     setSuccess('');
+    setShowRedirectOption(false);
     try {
-      await signIn(effectiveClientId);
+      await signIn(effectiveClientId, useRedirect);
       setConnected(true);
       setSuccess('Connecté à Google Drive');
       const info = await getBackupInfo();
@@ -94,7 +110,11 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
         setLastBackup(info.modifiedTime);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur de connexion');
+      const message = err instanceof Error ? err.message : 'Erreur de connexion';
+      setError(message);
+      if (!useRedirect) {
+        setShowRedirectOption(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -195,6 +215,15 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                   {error}
                 </div>
               )}
+              {showRedirectOption && !connected && (
+                <button
+                  onClick={() => handleConnect(true)}
+                  disabled={loading}
+                  className="w-full text-sm text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
+                >
+                  Essayer la connexion par redirection
+                </button>
+              )}
               {success && (
                 <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm">
                   <Check className="w-4 h-4 shrink-0" />
@@ -246,7 +275,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                 </div>
                 {gisLoaded && (
                   <button
-                    onClick={connected ? handleDisconnect : handleConnect}
+                    onClick={connected ? handleDisconnect : () => handleConnect()}
                     disabled={loading || (!effectiveClientId && !connected)}
                     className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                       connected

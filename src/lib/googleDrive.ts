@@ -72,7 +72,29 @@ export function isSignedIn(): boolean {
   return accessToken !== null && Date.now() < tokenExpiresAt;
 }
 
-export function signIn(clientId: string): Promise<string> {
+export function handleRedirectResponse(): boolean {
+  const hash = window.location.hash;
+  if (!hash) return false;
+
+  const params = new URLSearchParams(hash.substring(1));
+  const token = params.get('access_token');
+  const expiresIn = params.get('expires_in');
+
+  if (token && expiresIn) {
+    accessToken = token;
+    tokenExpiresAt = Date.now() + parseInt(expiresIn, 10) * 1000;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return true;
+  }
+
+  return false;
+}
+
+function getRedirectUri(): string {
+  return window.location.origin + window.location.pathname;
+}
+
+export function signIn(clientId: string, useRedirect = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
     if (!oauth2) {
@@ -80,7 +102,7 @@ export function signIn(clientId: string): Promise<string> {
       return;
     }
 
-    const client = oauth2.initTokenClient({
+    const config: Parameters<GoogleOAuth2['initTokenClient']>[0] = {
       client_id: clientId,
       scope: SCOPES,
       callback: (response) => {
@@ -92,8 +114,18 @@ export function signIn(clientId: string): Promise<string> {
         tokenExpiresAt = Date.now() + response.expires_in * 1000;
         resolve(response.access_token);
       },
-    });
+    };
 
+    if (useRedirect) {
+      config.ux_mode = 'redirect';
+      config.redirect_uri = getRedirectUri();
+    } else {
+      config.error_callback = (error) => {
+        reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
+      };
+    }
+
+    const client = oauth2.initTokenClient(config);
     client.requestAccessToken();
   });
 }
