@@ -72,7 +72,29 @@ export function isSignedIn(): boolean {
   return accessToken !== null && Date.now() < tokenExpiresAt;
 }
 
-export function signIn(clientId: string): Promise<string> {
+export function handleRedirectResponse(): boolean {
+  const hash = window.location.hash;
+  if (!hash) return false;
+
+  const params = new URLSearchParams(hash.substring(1));
+  const token = params.get('access_token');
+  const expiresIn = params.get('expires_in');
+
+  if (token && expiresIn) {
+    accessToken = token;
+    tokenExpiresAt = Date.now() + parseInt(expiresIn, 10) * 1000;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return true;
+  }
+
+  return false;
+}
+
+function getRedirectUri(): string {
+  return window.location.origin + window.location.pathname;
+}
+
+export function signIn(clientId: string, useRedirect = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
     if (!oauth2) {
@@ -83,6 +105,12 @@ export function signIn(clientId: string): Promise<string> {
     const client = oauth2.initTokenClient({
       client_id: clientId,
       scope: SCOPES,
+      ...(useRedirect
+        ? { ux_mode: 'redirect' as const, redirect_uri: getRedirectUri() }
+        : {}),
+      error_callback: (error) => {
+        reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
+      },
       callback: (response) => {
         if (response.error) {
           reject(new Error(`Erreur d'authentification: ${response.error}`));
