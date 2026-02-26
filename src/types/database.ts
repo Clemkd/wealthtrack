@@ -2,7 +2,6 @@ export type TransactionType = 'buy' | 'sell' | 'swap';
 
 export interface Transaction {
   id: string;
-  user_id: string;
   transaction_type: TransactionType;
   currency_from: string | null;
   currency_to: string;
@@ -13,16 +12,4 @@ export interface Transaction {
   notes: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface Database {
-  public: {
-    Tables: {
-      transactions: {
-        Row: Transaction;
-        Insert: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>;
-        Update: Partial<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>;
-      };
-    };
-  };
 }
