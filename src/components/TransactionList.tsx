@@ -114,6 +114,15 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       maximumFractionDigits: 2,
                     })}{' '}
                     €
+                    {transaction.price_per_unit_usd != null && (
+                      <span className="text-gray-400 ml-1">
+                        ({transaction.price_per_unit_usd.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        $)
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -124,6 +133,15 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       maximumFractionDigits: 2,
                     })}{' '}
                     €
+                    {transaction.total_value_usd != null && (
+                      <span className="text-gray-500 font-normal ml-1">
+                        ({transaction.total_value_usd.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        $)
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 font-mono">
@@ -158,10 +176,10 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                 Quantité
               </th>
               <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                Prix unitaire
+                Prix unitaire (EUR / USD)
               </th>
               <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                Valeur totale
+                Valeur totale (EUR / USD)
               </th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 Date
@@ -214,6 +232,15 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       maximumFractionDigits: 2,
                     })}{' '}
                     €
+                    {transaction.price_per_unit_usd != null && (
+                      <div className="text-xs text-gray-400">
+                        {transaction.price_per_unit_usd.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        $
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-right font-semibold text-gray-900">
                     {transaction.total_value.toLocaleString('fr-FR', {
@@ -221,6 +248,15 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       maximumFractionDigits: 2,
                     })}{' '}
                     €
+                    {transaction.total_value_usd != null && (
+                      <div className="text-xs text-gray-400 font-normal">
+                        {transaction.total_value_usd.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        $
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-gray-700 font-mono text-sm">
                     {new Date(transaction.transaction_date).toLocaleDateString('fr-FR', {

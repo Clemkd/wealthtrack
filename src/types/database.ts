@@ -9,6 +9,8 @@ export interface Transaction {
   amount: number;
   price_per_unit: number;
   total_value: number;
+  price_per_unit_usd: number | null;
+  total_value_usd: number | null;
   transaction_date: string;
   notes: string;
   created_at: string;

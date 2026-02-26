@@ -154,8 +154,10 @@ export default function TaxReport({ transactions }: TaxReportProps) {
         'Type',
         'Monnaie',
         'Quantité',
-        'Prix unitaire',
-        'Valeur totale',
+        'Prix unitaire (EUR)',
+        'Valeur totale (EUR)',
+        'Prix unitaire (USD)',
+        'Valeur totale (USD)',
         'Notes',
       ],
       ...taxData.transactions.map((tx) => [
@@ -167,6 +169,8 @@ export default function TaxReport({ transactions }: TaxReportProps) {
         tx.amount.toString(),
         tx.price_per_unit.toString(),
         tx.total_value.toString(),
+        tx.price_per_unit_usd?.toString() ?? '',
+        tx.total_value_usd?.toString() ?? '',
         tx.notes,
       ]),
     ]

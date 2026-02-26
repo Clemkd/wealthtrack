@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { TransactionType } from '../types/database';
+import { getEurToUsdRate } from '../lib/exchangeRate';
 import { X, Plus } from 'lucide-react';
 
 interface TransactionFormProps {
@@ -39,6 +40,10 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
     const priceNum = parseFloat(pricePerUnit);
     const totalValue = amountNum * priceNum;
 
+    const eurToUsd = await getEurToUsdRate();
+    const pricePerUnitUsd = eurToUsd ? priceNum * eurToUsd : null;
+    const totalValueUsd = eurToUsd ? totalValue * eurToUsd : null;
+
     const { error: insertError } = await supabase.from('transactions').insert({
       user_id: user.id,
       transaction_type: transactionType,
@@ -47,6 +52,8 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
       amount: amountNum,
       price_per_unit: priceNum,
       total_value: totalValue,
+      price_per_unit_usd: pricePerUnitUsd,
+      total_value_usd: totalValueUsd,
       transaction_date: new Date(transactionDate).toISOString(),
       notes: notes,
     });
