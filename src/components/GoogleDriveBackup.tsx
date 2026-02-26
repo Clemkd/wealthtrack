@@ -5,6 +5,7 @@ import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
   handleRedirectResponse,
+  restoreSession,
   signIn,
   signOut,
   isSignedIn,
@@ -45,7 +46,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     initGoogleDrive()
       .then(() => {
         setGisLoaded(true);
-        if (handleRedirectResponse()) {
+        // Try redirect response first, then restore persisted session
+        const restored = handleRedirectResponse() || restoreSession();
+        if (restored) {
           setConnected(true);
           getBackupInfo()
             .then((info) => {
