@@ -23,7 +23,7 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
   );
   const [notes, setNotes] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
