@@ -188,7 +188,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
             <Calendar className="w-6 h-6 text-blue-600" />
             <h3 className="text-lg font-bold text-gray-900">Sélectionner l'année fiscale</h3>
@@ -259,7 +259,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
 
         <div className="border-t border-gray-200 pt-4">
           <h4 className="font-semibold text-gray-900 mb-3">Détail des plus/moins-values</h4>
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div className="flex justify-between">
               <span className="text-gray-600">Plus-values:</span>
               <span className="font-semibold text-green-600">
@@ -324,10 +324,10 @@ export default function TaxReport({ transactions }: TaxReportProps) {
             {taxData.transactions.map((tx) => (
               <div
                 key={tx.id}
-                className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+                className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-4 p-3 bg-gray-50 rounded-lg"
               >
-                <div className="flex items-center gap-4">
-                  <span className="text-sm text-gray-600 font-mono">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                  <span className="text-xs sm:text-sm text-gray-600 font-mono">
                     {new Date(tx.transaction_date).toLocaleDateString('fr-FR', {
                       year: 'numeric',
                       month: 'short',
