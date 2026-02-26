@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { addTransaction } from '../lib/storage';
 import { TransactionType } from '../types/database';
-import { getEurToUsdRate } from '../lib/exchangeRate';
+import { getEurToUsdRate, getUsdToEurRate } from '../lib/exchangeRate';
 import { X, Plus } from 'lucide-react';
+
+type PriceCurrency = 'EUR' | 'USD';
 
 interface TransactionFormProps {
   onSuccess: () => void;
@@ -18,6 +20,7 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
   const [currencyTo, setCurrencyTo] = useState('');
   const [amount, setAmount] = useState('');
   const [pricePerUnit, setPricePerUnit] = useState('');
+  const [priceCurrency, setPriceCurrency] = useState<PriceCurrency>('EUR');
   const [transactionDate, setTransactionDate] = useState(
     new Date().toISOString().slice(0, 23)
   );
@@ -31,21 +34,39 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
     try {
       const amountNum = parseFloat(amount);
       const priceNum = parseFloat(pricePerUnit);
-      const totalValue = amountNum * priceNum;
+      const totalInput = amountNum * priceNum;
 
-      const eurToUsd = await getEurToUsdRate();
-      const pricePerUnitUsd = eurToUsd ? priceNum * eurToUsd : null;
-      const totalValueUsd = eurToUsd ? totalValue * eurToUsd : null;
+      let priceEur: number;
+      let totalEur: number;
+      let priceUsd: number | null;
+      let totalUsd: number | null;
+
+      if (priceCurrency === 'USD') {
+        const usdToEur = await getUsdToEurRate();
+        if (!usdToEur) {
+          throw new Error('Impossible de récupérer le taux de change USD/EUR. Veuillez réessayer.');
+        }
+        priceEur = priceNum * usdToEur;
+        totalEur = totalInput * usdToEur;
+        priceUsd = priceNum;
+        totalUsd = totalInput;
+      } else {
+        const eurToUsd = await getEurToUsdRate();
+        priceEur = priceNum;
+        totalEur = totalInput;
+        priceUsd = eurToUsd ? priceNum * eurToUsd : null;
+        totalUsd = eurToUsd ? totalInput * eurToUsd : null;
+      }
 
       addTransaction({
         transaction_type: transactionType,
         currency_from: transactionType === 'swap' ? currencyFrom : null,
         currency_to: currencyTo,
         amount: amountNum,
-        price_per_unit: priceNum,
-        total_value: totalValue,
-        price_per_unit_usd: pricePerUnitUsd,
-        total_value_usd: totalValueUsd,
+        price_per_unit: priceEur,
+        total_value: totalEur,
+        price_per_unit_usd: priceUsd,
+        total_value_usd: totalUsd,
         transaction_date: new Date(transactionDate).toISOString(),
         notes: notes,
       });
@@ -145,18 +166,28 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
 
             <div>
               <label htmlFor="pricePerUnit" className="block text-sm font-medium text-gray-700 mb-2">
-                Prix unitaire (EUR)
+                Prix unitaire ({priceCurrency === 'EUR' ? 'EUR' : 'USD'})
               </label>
-              <input
-                id="pricePerUnit"
-                type="number"
-                step="0.01"
-                value={pricePerUnit}
-                onChange={(e) => setPricePerUnit(e.target.value)}
-                required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="0.00"
-              />
+              <div className="flex gap-2">
+                <input
+                  id="pricePerUnit"
+                  type="number"
+                  step="0.01"
+                  value={pricePerUnit}
+                  onChange={(e) => setPricePerUnit(e.target.value)}
+                  required
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="0.00"
+                />
+                <select
+                  value={priceCurrency}
+                  onChange={(e) => setPriceCurrency(e.target.value as PriceCurrency)}
+                  className="px-3 py-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium text-gray-700"
+                >
+                  <option value="EUR">€ EUR</option>
+                  <option value="USD">$ USD</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -164,7 +195,7 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800">
                 <span className="font-semibold">Valeur totale:</span>{' '}
-                {(parseFloat(amount) * parseFloat(pricePerUnit)).toFixed(2)} EUR
+                {(parseFloat(amount) * parseFloat(pricePerUnit)).toFixed(2)} {priceCurrency === 'EUR' ? 'EUR' : 'USD'}
               </p>
             </div>
           )}
