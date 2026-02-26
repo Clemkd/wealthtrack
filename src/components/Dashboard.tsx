@@ -74,7 +74,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <nav className="flex gap-1 -mb-px overflow-x-auto">
+          <nav className="flex gap-1 -mb-px overflow-x-auto scrollbar-hide">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
