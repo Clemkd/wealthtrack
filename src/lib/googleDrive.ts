@@ -102,15 +102,9 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
       return;
     }
 
-    const client = oauth2.initTokenClient({
+    const config: Parameters<GoogleOAuth2['initTokenClient']>[0] = {
       client_id: clientId,
       scope: SCOPES,
-      ...(useRedirect
-        ? { ux_mode: 'redirect' as const, redirect_uri: getRedirectUri() }
-        : {}),
-      error_callback: (error) => {
-        reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
-      },
       callback: (response) => {
         if (response.error) {
           reject(new Error(`Erreur d'authentification: ${response.error}`));
@@ -120,8 +114,18 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
         tokenExpiresAt = Date.now() + response.expires_in * 1000;
         resolve(response.access_token);
       },
-    });
+    };
 
+    if (useRedirect) {
+      config.ux_mode = 'redirect';
+      config.redirect_uri = getRedirectUri();
+    } else {
+      config.error_callback = (error) => {
+        reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
+      };
+    }
+
+    const client = oauth2.initTokenClient(config);
     client.requestAccessToken();
   });
 }

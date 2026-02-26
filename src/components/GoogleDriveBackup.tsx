@@ -51,7 +51,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
             .then((info) => {
               if (info) setLastBackup(info.modifiedTime);
             })
-            .catch(() => {});
+            .catch((err) => {
+              console.warn('Impossible de récupérer les infos de sauvegarde:', err);
+            });
         }
       })
       .catch(() => {});
