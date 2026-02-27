@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Transaction } from '../types/database';
-import { Download, Calendar } from 'lucide-react';
+import { Download, Calendar, Info } from 'lucide-react';
 
 interface TaxReportProps {
   transactions: Transaction[];
@@ -15,6 +15,8 @@ interface TaxData {
   netGain: number;
   transactions: Transaction[];
 }
+
+const EXEMPTION_THRESHOLD = 305;
 
 export default function TaxReport({ transactions }: TaxReportProps) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -31,79 +33,71 @@ export default function TaxReport({ transactions }: TaxReportProps) {
       (tx) => new Date(tx.transaction_date).getFullYear() === selectedYear
     );
 
+    // Sort ALL transactions chronologically for running totals
     const allTransactions = [...transactions].sort(
       (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
     );
 
-    const holdings = new Map<string, Array<{ amount: number; costPerUnit: number }>>();
-    const costBasisByTx = new Map<string, number>();
+    // French tax method (Article 150 VH bis CGI):
+    // PV = Prix de cession - (Prix total d'acquisition × Prix de cession / Valeur globale du portefeuille)
+    let prixTotalAcquisition = 0;
+    const holdings = new Map<string, number>();
+    const lastKnownPrices = new Map<string, number>();
+    const gainByTx = new Map<string, number>();
 
     allTransactions.forEach((tx) => {
-      const currency = tx.currency_to;
-
       if (tx.transaction_type === 'buy') {
-        if (!holdings.has(currency)) {
-          holdings.set(currency, []);
-        }
-        holdings.get(currency)!.push({
-          amount: tx.amount,
-          costPerUnit: tx.price_per_unit,
-        });
+        // Acquisition: increase total cost and holdings
+        prixTotalAcquisition += tx.total_value;
+        holdings.set(tx.currency_to, (holdings.get(tx.currency_to) || 0) + tx.amount);
+        lastKnownPrices.set(tx.currency_to, tx.price_per_unit);
       } else if (tx.transaction_type === 'sell') {
-        if (!holdings.has(currency)) {
-          holdings.set(currency, []);
-        }
+        // Taxable cession: apply French formula
+        const prixDeCession = tx.total_value;
 
-        let remainingToSell = tx.amount;
-        let totalCostBasis = 0;
-        const lots = holdings.get(currency)!;
+        // Update last known price for the sold currency
+        lastKnownPrices.set(tx.currency_to, tx.price_per_unit);
 
-        while (remainingToSell > 0 && lots.length > 0) {
-          const lot = lots[0];
-          const amountFromLot = Math.min(lot.amount, remainingToSell);
-          totalCostBasis += amountFromLot * lot.costPerUnit;
-
-          lot.amount -= amountFromLot;
-          remainingToSell -= amountFromLot;
-
-          if (lot.amount === 0) {
-            lots.shift();
+        // Calculate total portfolio market value at time of sale
+        let valeurGlobalePortefeuille = 0;
+        holdings.forEach((qty, currency) => {
+          if (qty > 0) {
+            const price = lastKnownPrices.get(currency) || 0;
+            valeurGlobalePortefeuille += qty * price;
           }
-        }
-
-        costBasisByTx.set(tx.id, totalCostBasis);
-      } else if (tx.transaction_type === 'swap') {
-        if (tx.currency_from) {
-          const fromCurrency = tx.currency_from;
-          if (!holdings.has(fromCurrency)) {
-            holdings.set(fromCurrency, []);
-          }
-
-          let remainingToSwap = tx.amount;
-          const lots = holdings.get(fromCurrency)!;
-
-          while (remainingToSwap > 0 && lots.length > 0) {
-            const lot = lots[0];
-            const amountFromLot = Math.min(lot.amount, remainingToSwap);
-            lot.amount -= amountFromLot;
-            remainingToSwap -= amountFromLot;
-
-            if (lot.amount === 0) {
-              lots.shift();
-            }
-          }
-        }
-
-        if (!holdings.has(currency)) {
-          holdings.set(currency, []);
-        }
-        holdings.get(currency)!.push({
-          amount: tx.amount,
-          costPerUnit: tx.price_per_unit,
         });
+
+        // French formula: PV = PC - (PTA × PC / VGP)
+        let plusValue = 0;
+        if (valeurGlobalePortefeuille > 0) {
+          const fractionAcquisition = prixTotalAcquisition * (prixDeCession / valeurGlobalePortefeuille);
+          plusValue = prixDeCession - fractionAcquisition;
+          // Reduce PTA by the fraction attributed to this sale
+          prixTotalAcquisition = Math.max(0, prixTotalAcquisition - fractionAcquisition);
+        }
+
+        // Update holdings
+        const currentQty = holdings.get(tx.currency_to) || 0;
+        holdings.set(tx.currency_to, Math.max(0, currentQty - tx.amount));
+
+        gainByTx.set(tx.id, plusValue);
+      } else if (tx.transaction_type === 'swap') {
+        // Swap crypto→crypto: NOT a taxable event under French law
+        // Only update portfolio composition, PTA stays the same
+        if (tx.currency_from) {
+          const fromPrice = lastKnownPrices.get(tx.currency_from) || 0;
+          const sourceAmount = fromPrice > 0 ? tx.total_value / fromPrice : 0;
+          const currentQty = holdings.get(tx.currency_from) || 0;
+          holdings.set(tx.currency_from, Math.max(0, currentQty - sourceAmount));
+        }
+
+        // Add target currency to holdings
+        holdings.set(tx.currency_to, (holdings.get(tx.currency_to) || 0) + tx.amount);
+        lastKnownPrices.set(tx.currency_to, tx.price_per_unit);
       }
     });
 
+    // Calculate yearly totals
     let totalBuys = 0;
     let totalSells = 0;
     let capitalGains = 0;
@@ -115,8 +109,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
       } else if (tx.transaction_type === 'sell') {
         totalSells += tx.total_value;
 
-        const costBasis = costBasisByTx.get(tx.id) || 0;
-        const gain = tx.total_value - costBasis;
+        const gain = gainByTx.get(tx.id) || 0;
 
         if (gain > 0) {
           capitalGains += gain;
@@ -141,12 +134,16 @@ export default function TaxReport({ transactions }: TaxReportProps) {
     const csvContent = [
       ['Rapport Fiscal', selectedYear],
       [],
+      ['Méthode de calcul', 'Article 150 VH bis CGI - Prix moyen pondéré global du portefeuille'],
+      [],
       ['Résumé'],
       ['Total achats', `${taxData.totalBuys.toFixed(2)} €`],
-      ['Total ventes', `${taxData.totalSells.toFixed(2)} €`],
+      ['Total cessions (ventes)', `${taxData.totalSells.toFixed(2)} €`],
       ['Plus-values', `${taxData.capitalGains.toFixed(2)} €`],
       ['Moins-values', `${taxData.capitalLosses.toFixed(2)} €`],
       ['Plus-value nette', `${taxData.netGain.toFixed(2)} €`],
+      ['Seuil d\'exonération (305 €)', isExempt ? 'Applicable - Pas d\'imposition' : 'Non applicable'],
+      ['Impôt estimé (PFU 30%)', `${estimatedTax.toFixed(2)} €`],
       [],
       ['Détail des transactions'],
       [
@@ -187,7 +184,8 @@ export default function TaxReport({ transactions }: TaxReportProps) {
   };
 
   const flatTaxRate = 0.3;
-  const estimatedTax = Math.max(0, taxData.netGain * flatTaxRate);
+  const isExempt = taxData.totalSells <= EXEMPTION_THRESHOLD;
+  const estimatedTax = isExempt ? 0 : Math.max(0, taxData.netGain * flatTaxRate);
 
   return (
     <div className="space-y-6">
@@ -223,7 +221,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-700 font-medium mb-1">Total ventes</p>
+            <p className="text-sm text-blue-700 font-medium mb-1">Total cessions (ventes)</p>
             <p className="text-2xl font-bold text-blue-900">
               {taxData.totalSells.toLocaleString('fr-FR', {
                 minimumFractionDigits: 2,
@@ -289,14 +287,82 @@ export default function TaxReport({ transactions }: TaxReportProps) {
           </div>
         </div>
 
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-4">
+          <div className="flex items-start gap-2">
+            <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <h4 className="font-semibold text-amber-900 mb-1">Méthode de calcul</h4>
+              <p className="text-sm text-amber-800">
+                Calcul selon l'article 150 VH bis du CGI : prix moyen pondéré global du portefeuille.
+                Les échanges crypto→crypto (swaps) ne sont pas des cessions imposables.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {isExempt && taxData.totalSells > 0 && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+            <div className="flex items-start gap-2">
+              <Info className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h4 className="font-semibold text-green-900 mb-1">Exonération applicable</h4>
+                <p className="text-sm text-green-800">
+                  Le total annuel de vos cessions ({taxData.totalSells.toLocaleString('fr-FR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} €) est inférieur ou égal à {EXEMPTION_THRESHOLD} €.
+                  Vos plus-values sont exonérées d'impôt.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mt-4">
           <h4 className="font-semibold text-slate-900 mb-2">
-            Estimation de l'impôt (Flat Tax 30%)
+            Estimation de l'impôt (PFU 30%)
           </h4>
           <p className="text-sm text-slate-600 mb-2">
-            Cette estimation est basée sur le régime du prélèvement forfaitaire unique (PFU) de
-            30% appliqué aux plus-values nettes.
+            Prélèvement forfaitaire unique (PFU) : 12,8% d'impôt sur le revenu + 17,2% de
+            prélèvements sociaux = 30% sur les plus-values nettes.
+            {isExempt && taxData.totalSells > 0
+              ? ' Exonération applicable (cessions ≤ 305 €).'
+              : ''}
           </p>
+          {!isExempt && taxData.netGain > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3 text-sm">
+              <div className="flex justify-between sm:flex-col">
+                <span className="text-slate-600">Impôt sur le revenu (12,8%)</span>
+                <span className="font-semibold text-slate-900">
+                  {(taxData.netGain * 0.128).toLocaleString('fr-FR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  €
+                </span>
+              </div>
+              <div className="flex justify-between sm:flex-col">
+                <span className="text-slate-600">Prélèvements sociaux (17,2%)</span>
+                <span className="font-semibold text-slate-900">
+                  {(taxData.netGain * 0.172).toLocaleString('fr-FR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  €
+                </span>
+              </div>
+              <div className="flex justify-between sm:flex-col">
+                <span className="text-slate-600">Total PFU (30%)</span>
+                <span className="font-semibold text-slate-900">
+                  {estimatedTax.toLocaleString('fr-FR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  €
+                </span>
+              </div>
+            </div>
+          )}
           <p className="text-2xl font-bold text-slate-900">
             {estimatedTax.toLocaleString('fr-FR', {
               minimumFractionDigits: 2,
@@ -305,8 +371,9 @@ export default function TaxReport({ transactions }: TaxReportProps) {
             €
           </p>
           <p className="text-xs text-slate-500 mt-2">
-            Cette estimation est fournie à titre indicatif. Consultez un expert-comptable pour une
-            analyse précise.
+            Cette estimation est fournie à titre indicatif. La valeur globale du portefeuille est
+            estimée à partir des derniers prix connus. Consultez un expert-comptable pour une
+            analyse précise de votre situation (formulaire 2086).
           </p>
         </div>
 
