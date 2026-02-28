@@ -8,16 +8,24 @@
   </head>
   <body>
     <div id="root">
-      <div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,sans-serif;color:#666">
+      <div id="app-loading" style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,sans-serif;color:#666">
         Chargement…
       </div>
     </div>
     <script>
       window.addEventListener('error', function(e) {
-        var d = document.getElementById('root');
-        if (d && (!d.children.length || d.children[0].style)) {
-          d.innerHTML = '<div style="padding:2rem;font-family:monospace;color:red"><h2>Erreur de chargement</h2><pre>' +
-            (e.message || 'Unknown error') + '\n' + (e.filename || '') + ':' + (e.lineno || '') + '</pre></div>';
+        if (document.getElementById('app-loading')) {
+          var d = document.getElementById('root');
+          var pre = document.createElement('pre');
+          pre.textContent = (e.message || 'Unknown error') + '\n' + (e.filename || '') + ':' + (e.lineno || '');
+          var h2 = document.createElement('h2');
+          h2.textContent = 'Erreur de chargement';
+          var wrap = document.createElement('div');
+          wrap.style.cssText = 'padding:2rem;font-family:monospace;color:red';
+          wrap.appendChild(h2);
+          wrap.appendChild(pre);
+          d.innerHTML = '';
+          d.appendChild(wrap);
         }
       });
     </script>
