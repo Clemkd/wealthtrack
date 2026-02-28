@@ -7,7 +7,20 @@
     <title>Crypto Portfolio &amp; Tax Reporting</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,sans-serif;color:#666">
+        Chargement…
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', function(e) {
+        var d = document.getElementById('root');
+        if (d && (!d.children.length || d.children[0].style)) {
+          d.innerHTML = '<div style="padding:2rem;font-family:monospace;color:red"><h2>Erreur de chargement</h2><pre>' +
+            (e.message || 'Unknown error') + '\n' + (e.filename || '') + ':' + (e.lineno || '') + '</pre></div>';
+        }
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
