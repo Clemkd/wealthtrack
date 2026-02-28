@@ -13,6 +13,24 @@ WealthTrack est une application web permettant de suivre ses investissements en 
 - **Sauvegarde Google Drive** – Sauvegarde et restauration automatique ou manuelle des données via Google Drive (appDataFolder).
 - **Interface responsive** – Design moderne avec Tailwind CSS, utilisable sur ordinateur et mobile.
 
+## Captures d'écran
+
+### Vue d'ensemble
+
+![Vue d'ensemble du portefeuille](https://github.com/user-attachments/assets/823bc268-a26a-445b-a96a-c6d2bebd0bc1)
+
+### Graphiques de performance
+
+![Graphiques de performance](https://github.com/user-attachments/assets/67a891c4-38b7-457b-ba41-d74e3ad90261)
+
+### Rapport fiscal
+
+![Rapport fiscal](https://github.com/user-attachments/assets/74413c07-c589-46b0-93f8-229dc868914d)
+
+### Formulaire de transaction
+
+![Formulaire de transaction](https://github.com/user-attachments/assets/1a843d43-2a86-44dc-bf51-eecc3613d57c)
+
 ## Stack technique
 
 | Couche | Technologies |
