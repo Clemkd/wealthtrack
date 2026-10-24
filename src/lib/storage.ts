@@ -4,21 +4,27 @@ import { dedupeIds, newId, normalizeTransaction } from './transactions';
 const STORAGE_KEY = 'wealthtrack_transactions';
 const CORRUPT_KEY = 'wealthtrack_transactions_corrupt';
 
-function generateId(): string {
-  return newId();
+// What could not be read is kept, as a list of the different raw contents met, so
+// that no later read or write can lose it.
+function readUnreadableCopies(): string[] {
+  const stored = localStorage.getItem(CORRUPT_KEY);
+  if (stored === null) return [];
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (Array.isArray(parsed) && parsed.every((copy) => typeof copy === 'string')) return parsed;
+  } catch {
+    // Not a list: it is a single raw copy
+  }
+  return [stored];
 }
 
-// Keeps what could not be read so it is never silently lost by the next save. The
-// first copy is kept: later reads must not overwrite it. Returns true when this raw
-// content is safely set aside (written now, or already there).
+// Returns true when this raw content is safely set aside (written now, or already there).
 function backUpUnreadableData(raw: string): boolean {
   try {
-    const existing = localStorage.getItem(CORRUPT_KEY);
-    if (existing === null) {
-      localStorage.setItem(CORRUPT_KEY, raw);
-      return true;
-    }
-    return existing === raw;
+    const copies = readUnreadableCopies();
+    if (copies.includes(raw)) return true;
+    localStorage.setItem(CORRUPT_KEY, JSON.stringify([...copies, raw]));
+    return true;
   } catch {
     // Storage full: reading must still work, but nothing was set aside
     return false;
@@ -29,13 +35,18 @@ export function hasUnreadableData(): boolean {
   return localStorage.getItem(CORRUPT_KEY) !== null;
 }
 
+// The set aside copies as one JSON text, for the user to download.
+export function getUnreadableDataCopy(): string | null {
+  return localStorage.getItem(CORRUPT_KEY);
+}
+
 export function clearUnreadableData(): void {
   localStorage.removeItem(CORRUPT_KEY);
 }
 
 // The user has seen the notice: what could not be read is dropped from the stored
 // list too (otherwise it would be set aside again at the next read), then the
-// raw copy is released.
+// raw copies are released.
 export function acknowledgeUnreadableData(): void {
   saveTransactions(getTransactions());
   clearUnreadableData();
@@ -91,7 +102,7 @@ export function addTransaction(
   const now = new Date().toISOString();
   const newTx: Transaction = {
     ...tx,
-    id: generateId(),
+    id: newId(),
     created_at: now,
     updated_at: now,
   };

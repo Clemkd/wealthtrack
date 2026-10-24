@@ -68,7 +68,8 @@ describe('Dashboard unreadable data notice', () => {
     store.set('wealthtrack_transactions_corrupt', '[null]');
     const html = renderToStaticMarkup(<Dashboard />);
     expect(html).toContain('illisibles');
-    expect(html).toContain('wealthtrack_transactions_corrupt');
+    expect(html).toContain('Télécharger la copie');
+    expect(html).toMatch(/supprim/i);
   });
 });
 

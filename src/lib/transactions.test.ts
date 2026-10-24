@@ -93,6 +93,19 @@ describe('normalizeTransaction', () => {
     expect(normalizeTransaction({ ...valid, transaction_type: 'sell', amount_to: 7 })?.amount_to).toBeNull();
   });
 
+  it('rejects a buy or a sell of a fiat currency, like the form does', () => {
+    expect(normalizeTransaction({ ...valid, currency_to: 'EUR' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_type: 'sell', currency_to: 'usd' })).toBeNull();
+  });
+
+  it('only accepts ISO 8601 dates, not day/month ambiguities from a spreadsheet', () => {
+    expect(normalizeTransaction({ ...valid, transaction_date: '05/01/2024 10:00' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: 'Jan 5 2024' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-01-05' })).not.toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-01-05T10:00:00.123Z' })).not.toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-13-45' })).toBeNull();
+  });
+
   it('rejects a swap between two fiat currencies', () => {
     const swap = { ...valid, transaction_type: 'swap', currency_from: 'EUR', currency_to: 'USD' };
     expect(normalizeTransaction(swap)).toBeNull();

@@ -5,6 +5,7 @@ import {
   acknowledgeUnreadableData,
   deleteTransaction,
   getTransactions,
+  getUnreadableDataCopy,
   hasUnreadableData,
   updateTransaction,
 } from './storage';
@@ -13,6 +14,7 @@ const KEY = 'wealthtrack_transactions';
 const CORRUPT_KEY = 'wealthtrack_transactions_corrupt';
 
 const store = new Map<string, string>();
+const copies = (): string[] => JSON.parse(store.get(CORRUPT_KEY) ?? '[]');
 
 beforeEach(() => {
   store.clear();
@@ -53,13 +55,13 @@ describe('getTransactions', () => {
   it('does not throw on invalid JSON and keeps the raw content aside', () => {
     store.set(KEY, '{not json');
     expect(getTransactions()).toEqual([]);
-    expect(store.get(CORRUPT_KEY)).toBe('{not json');
+    expect(copies()).toEqual(['{not json']);
   });
 
   it.each(['null', '{}', '"text"', '42'])('treats %s as an empty list', (raw) => {
     store.set(KEY, raw);
     expect(getTransactions()).toEqual([]);
-    expect(store.get(CORRUPT_KEY)).toBe(raw);
+    expect(copies()).toEqual([raw]);
   });
 
   it('drops unusable elements, keeps the others and backs up the original', () => {
@@ -67,7 +69,7 @@ describe('getTransactions', () => {
     store.set(KEY, raw);
     const result = getTransactions();
     expect(result.map((t) => t.id)).toEqual(['a']);
-    expect(store.get(CORRUPT_KEY)).toBe(raw);
+    expect(copies()).toEqual([raw]);
   });
 
   it('does not create a backup when everything is valid', () => {
@@ -78,15 +80,23 @@ describe('getTransactions', () => {
 });
 
 describe('unreadable data safety', () => {
-  it('never overwrites a copy that was already set aside', () => {
-    store.set(CORRUPT_KEY, 'first copy');
+  it('keeps every different unreadable content, never replacing an earlier copy', () => {
+    store.set(CORRUPT_KEY, JSON.stringify(['first copy']));
     store.set(KEY, '{broken');
     getTransactions();
-    expect(store.get(CORRUPT_KEY)).toBe('first copy');
+    expect(copies()).toEqual(['first copy', '{broken']);
   });
 
-  it('still reads when the backup cannot be written (quota)', () => {
-    store.set(KEY, JSON.stringify([tx(), null]));
+  it('does not store the same content twice', () => {
+    store.set(KEY, '{broken');
+    getTransactions();
+    getTransactions();
+    expect(copies()).toEqual(['{broken']);
+  });
+
+  it('still reads, without rewriting anything, when the copy cannot be written (quota)', () => {
+    const raw = JSON.stringify([tx({ id: undefined }), null]);
+    store.set(KEY, raw);
     vi.stubGlobal('localStorage', {
       getItem: (k: string) => store.get(k) ?? null,
       setItem: (k: string) => {
@@ -95,7 +105,8 @@ describe('unreadable data safety', () => {
       },
       removeItem: (k: string) => void store.delete(k),
     });
-    expect(getTransactions().map((t) => t.id)).toEqual(['a']);
+    expect(getTransactions()).toHaveLength(1);
+    expect(store.get(KEY)).toBe(raw);
   });
 
   it('tells whether something was set aside and can acknowledge it', () => {
@@ -126,20 +137,28 @@ describe('unreadable data safety', () => {
     expect(getTransactions()).toEqual([]);
   });
 
-  it('does not rewrite the stored list when the rejected lines could not be set aside', () => {
-    store.set(CORRUPT_KEY, 'OLD COPY');
+  it('rewrites the list once the rejected lines are safely set aside, even next to an older copy', () => {
+    store.set(CORRUPT_KEY, JSON.stringify(['OLD COPY']));
     const raw = JSON.stringify([tx({ id: undefined }), { note: 'rejected', amount: '1,5' }]);
     store.set(KEY, raw);
     getTransactions();
-    expect(store.get(KEY)).toBe(raw);
+    expect(copies()).toEqual(['OLD COPY', raw]);
+    expect(JSON.parse(store.get(KEY) as string)).toHaveLength(1);
   });
 
-  it('rewrites once the rejected lines are safely set aside', () => {
-    const raw = JSON.stringify([tx({ id: undefined }), { note: 'rejected' }]);
+  it('keeps unreadable lines after a later write', () => {
+    store.set(CORRUPT_KEY, JSON.stringify(['OLD COPY']));
+    const raw = JSON.stringify([tx(), { note: 'LOST?' }]);
     store.set(KEY, raw);
+    addTransaction({ ...tx(), id: undefined } as never);
+    expect(copies().some((c) => c.includes('LOST?'))).toBe(true);
+  });
+
+  it('gives the set aside copies back so that they can be downloaded', () => {
+    expect(getUnreadableDataCopy()).toBeNull();
+    store.set(KEY, '{broken');
     getTransactions();
-    expect(store.get(CORRUPT_KEY)).toBe(raw);
-    expect(JSON.parse(store.get(KEY) as string)).toHaveLength(1);
+    expect(getUnreadableDataCopy()).toContain('{broken');
   });
 
   it('keeps ids stable between reads when they were missing', () => {

@@ -2,9 +2,11 @@ import { useState, useRef } from 'react';
 import {
   acknowledgeUnreadableData,
   getTransactions,
+  getUnreadableDataCopy,
   hasUnreadableData,
   saveTransactions,
 } from '../lib/storage';
+import { downloadBlob } from '../lib/download';
 import { exportToZip, readImportZip } from '../lib/importExport';
 import { Transaction } from '../types/database';
 import TransactionForm from './TransactionForm';
@@ -163,20 +165,35 @@ export default function Dashboard() {
             className="mb-4 flex items-start justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm"
           >
             <p>
-              Des données illisibles ont été mises de côté sans être supprimées : leur copie brute est
-              conservée dans le navigateur (clé wealthtrack_transactions_corrupt). Vérifiez vos
-              transactions et exportez-les.
+              Des données illisibles ont été écartées de la liste. Leur copie brute est conservée
+              dans le navigateur : téléchargez-la avant de la supprimer, elle ne sera plus
+              récupérable ensuite.
             </p>
-            <button
-              onClick={() => {
-                acknowledgeUnreadableData();
-                setUnreadable(false);
-                loadTransactions();
-              }}
-              className="shrink-0 font-semibold underline"
-            >
-              Compris
-            </button>
+            <div className="shrink-0 flex flex-col items-end gap-1">
+              <button
+                onClick={() => {
+                  const copy = getUnreadableDataCopy();
+                  if (copy) {
+                    downloadBlob(
+                      new Blob([copy], { type: 'application/json' }),
+                      'wealthtrack_donnees_illisibles.json'
+                    );
+                  }
+                }}
+                className="font-semibold underline"
+              >
+                Télécharger la copie
+              </button>
+              <button
+                onClick={() => {
+                  acknowledgeUnreadableData();
+                  loadTransactions();
+                }}
+                className="font-semibold underline"
+              >
+                Compris, supprimer la copie
+              </button>
+            </div>
           </div>
         )}
         {importError && (
@@ -184,47 +201,45 @@ export default function Dashboard() {
             {importError}
           </div>
         )}
-          <>
-            {activeTab === 'overview' && (
-              <div className="space-y-6">
-                <PortfolioStats transactions={transactions} />
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">
-                    Dernières transactions
-                  </h2>
-                  <TransactionList
-                    transactions={transactions.slice(0, 10)}
-                    onUpdate={loadTransactions}
-                  />
-                </div>
-              </div>
-            )}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            <PortfolioStats transactions={transactions} />
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 mb-4">
+                Dernières transactions
+              </h2>
+              <TransactionList
+                transactions={transactions.slice(0, 10)}
+                onUpdate={loadTransactions}
+              />
+            </div>
+          </div>
+        )}
 
-            {activeTab === 'history' && (
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-4">
-                  Historique complet des transactions
-                </h2>
-                <TransactionList transactions={transactions} onUpdate={loadTransactions} />
-              </div>
-            )}
+        {activeTab === 'history' && (
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              Historique complet des transactions
+            </h2>
+            <TransactionList transactions={transactions} onUpdate={loadTransactions} />
+          </div>
+        )}
 
-            {activeTab === 'charts' && (
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-4">
-                  Évolution du portefeuille
-                </h2>
-                <PerformanceChart transactions={transactions} />
-              </div>
-            )}
+        {activeTab === 'charts' && (
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              Évolution du portefeuille
+            </h2>
+            <PerformanceChart transactions={transactions} />
+          </div>
+        )}
 
-            {activeTab === 'tax' && (
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-4">Rapport fiscal</h2>
-                <TaxReport transactions={transactions} />
-              </div>
-            )}
-          </>
+        {activeTab === 'tax' && (
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Rapport fiscal</h2>
+            <TaxReport transactions={transactions} />
+          </div>
+        )}
       </main>
 
       {showForm && <TransactionForm onSuccess={handleFormSuccess} onCancel={() => setShowForm(false)} />}

@@ -51,6 +51,9 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   // Exchange exports often write sales with negative quantities: not importable as is
   if (amount <= 0 || pricePerUnit < 0 || totalValue < 0) return null;
 
+  // Fiat is not a crypto holding: only a swap can start from it (new money)
+  if (type !== 'swap' && isFiat(currencyTo)) return null;
+
   const currencyFrom = toNullableString(r.currency_from);
   if (type === 'swap' && !currencyFrom) return null;
 
@@ -60,8 +63,10 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   if (amountTo !== null && amountTo <= 0) return null;
   if (type === 'swap' && currencyFrom && isFiat(currencyFrom) && isFiat(currencyTo)) return null;
 
+  // ISO 8601 only: other formats (05/01/2024) are read as month/day or day/month
+  // depending on the data, which silently moves a transaction to another date
   const date = typeof r.transaction_date === 'string' ? r.transaction_date.trim() : '';
-  if (!date || Number.isNaN(new Date(date).getTime())) return null;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(date) || Number.isNaN(new Date(date).getTime())) return null;
 
   const now = new Date().toISOString();
   const text = (value: unknown, fallback: () => string) =>
