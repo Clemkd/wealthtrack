@@ -1,30 +1,54 @@
 import { useState } from 'react';
-import { addTransaction } from '../lib/storage';
-import { TransactionType } from '../types/database';
+import { addTransaction, updateTransaction } from '../lib/storage';
+import { Transaction, TransactionType, getReceivedAmount } from '../types/database';
 import { getEurToUsdRate, getUsdToEurRate } from '../lib/exchangeRate';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Save } from 'lucide-react';
 
 type PriceCurrency = 'EUR' | 'USD';
 
 interface TransactionFormProps {
+  transaction?: Transaction;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-export default function TransactionForm({ onSuccess, onCancel }: TransactionFormProps) {
+// Value for a datetime-local input (local time, millisecond precision).
+function toDateTimeLocal(date: Date): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 23);
+}
+
+// Currency symbols are short alphanumeric tickers (BTC, USDT...). Anything else,
+// e.g. text pasted from the page, would be stored as a bogus currency.
+const CURRENCY_MAX_LENGTH = 12;
+const CURRENCY_PATTERN = `[A-Z0-9]{1,${CURRENCY_MAX_LENGTH}}`;
+
+function sanitizeCurrency(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CURRENCY_MAX_LENGTH);
+}
+
+export default function TransactionForm({ transaction, onSuccess, onCancel }: TransactionFormProps) {
+  const isEditing = !!transaction;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [transactionType, setTransactionType] = useState<TransactionType>('buy');
-  const [currencyFrom, setCurrencyFrom] = useState('');
-  const [currencyTo, setCurrencyTo] = useState('');
-  const [amount, setAmount] = useState('');
-  const [pricePerUnit, setPricePerUnit] = useState('');
+  const [transactionType, setTransactionType] = useState<TransactionType>(
+    transaction?.transaction_type ?? 'buy'
+  );
+  const [currencyFrom, setCurrencyFrom] = useState(transaction?.currency_from ?? '');
+  const [currencyTo, setCurrencyTo] = useState(transaction?.currency_to ?? '');
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
+  const [amountTo, setAmountTo] = useState(
+    transaction?.transaction_type === 'swap' ? String(getReceivedAmount(transaction)) : ''
+  );
+  const [pricePerUnit, setPricePerUnit] = useState(
+    transaction ? String(transaction.price_per_unit) : ''
+  );
   const [priceCurrency, setPriceCurrency] = useState<PriceCurrency>('EUR');
   const [transactionDate, setTransactionDate] = useState(
-    new Date().toISOString().slice(0, 23)
+    toDateTimeLocal(transaction ? new Date(transaction.transaction_date) : new Date())
   );
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(transaction?.notes ?? '');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +74,16 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
         totalEur = totalInput * usdToEur;
         priceUsd = priceNum;
         totalUsd = totalInput;
+      } else if (
+        transaction &&
+        transaction.price_per_unit_usd != null &&
+        priceNum === transaction.price_per_unit
+      ) {
+        // Price untouched: keep the USD value recorded at the time of the transaction
+        priceEur = priceNum;
+        totalEur = totalInput;
+        priceUsd = transaction.price_per_unit_usd;
+        totalUsd = priceUsd * amountNum;
       } else {
         const eurToUsd = await getEurToUsdRate();
         priceEur = priceNum;
@@ -58,18 +92,25 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
         totalUsd = eurToUsd ? totalInput * eurToUsd : null;
       }
 
-      addTransaction({
+      const data = {
         transaction_type: transactionType,
         currency_from: transactionType === 'swap' ? currencyFrom : null,
         currency_to: currencyTo,
         amount: amountNum,
+        amount_to: transactionType === 'swap' ? parseFloat(amountTo) : null,
         price_per_unit: priceEur,
         total_value: totalEur,
         price_per_unit_usd: priceUsd,
         total_value_usd: totalUsd,
         transaction_date: new Date(transactionDate).toISOString(),
         notes: notes,
-      });
+      };
+
+      if (transaction) {
+        updateTransaction(transaction.id, data);
+      } else {
+        addTransaction(data);
+      }
 
       onSuccess();
     } catch (err) {
@@ -83,7 +124,9 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center rounded-t-2xl">
-          <h2 className="text-2xl font-bold text-gray-900">Nouvelle transaction</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {isEditing ? 'Modifier la transaction' : 'Nouvelle transaction'}
+          </h2>
           <button
             onClick={onCancel}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -124,7 +167,10 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
                 id="currencyFrom"
                 type="text"
                 value={currencyFrom}
-                onChange={(e) => setCurrencyFrom(e.target.value.toUpperCase())}
+                onChange={(e) => setCurrencyFrom(sanitizeCurrency(e.target.value))}
+                maxLength={CURRENCY_MAX_LENGTH}
+                pattern={CURRENCY_PATTERN}
+                title="Symbole de la monnaie (lettres et chiffres uniquement)"
                 required
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="EUR, BTC, ETH..."
@@ -140,7 +186,10 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
               id="currencyTo"
               type="text"
               value={currencyTo}
-              onChange={(e) => setCurrencyTo(e.target.value.toUpperCase())}
+              onChange={(e) => setCurrencyTo(sanitizeCurrency(e.target.value))}
+              maxLength={CURRENCY_MAX_LENGTH}
+              pattern={CURRENCY_PATTERN}
+              title="Symbole de la monnaie (lettres et chiffres uniquement)"
               required
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="BTC, ETH, USDT..."
@@ -150,7 +199,7 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-2">
-                Quantité
+                {transactionType === 'swap' ? 'Quantité envoyée' : 'Quantité'}
               </label>
               <input
                 id="amount"
@@ -166,7 +215,8 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
 
             <div>
               <label htmlFor="pricePerUnit" className="block text-sm font-medium text-gray-700 mb-2">
-                Prix unitaire ({priceCurrency === 'EUR' ? 'EUR' : 'USD'})
+                {transactionType === 'swap' ? 'Prix unitaire monnaie source' : 'Prix unitaire'} (
+                {priceCurrency === 'EUR' ? 'EUR' : 'USD'})
               </label>
               <div className="flex gap-2">
                 <input
@@ -190,6 +240,24 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
               </div>
             </div>
           </div>
+
+          {transactionType === 'swap' && (
+            <div>
+              <label htmlFor="amountTo" className="block text-sm font-medium text-gray-700 mb-2">
+                Quantité reçue{currencyTo ? ` (${currencyTo})` : ''}
+              </label>
+              <input
+                id="amountTo"
+                type="number"
+                step="0.00000001"
+                value={amountTo}
+                onChange={(e) => setAmountTo(e.target.value)}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="0.00"
+              />
+            </div>
+          )}
 
           {amount && pricePerUnit && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -248,7 +316,7 @@ export default function TransactionForm({ onSuccess, onCancel }: TransactionForm
               disabled={loading}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <Plus className="w-5 h-5" />
+              {isEditing ? <Save className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
               {loading ? 'Enregistrement...' : 'Enregistrer'}
             </button>
           </div>

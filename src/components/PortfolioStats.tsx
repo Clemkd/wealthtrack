@@ -1,4 +1,4 @@
-import { Transaction } from '../types/database';
+import { Transaction, getReceivedAmount } from '../types/database';
 import { Wallet, TrendingUp, Coins, PieChart } from 'lucide-react';
 
 interface PortfolioStatsProps {
@@ -39,7 +39,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
         holding.quantity -= tx.amount;
         holding.totalSold += tx.total_value;
       } else if (tx.transaction_type === 'swap') {
-        holding.quantity += tx.amount;
+        holding.quantity += getReceivedAmount(tx);
         holding.totalInvested += tx.total_value;
 
         if (tx.currency_from) {
