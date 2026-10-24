@@ -5,12 +5,14 @@ const VALID_TYPES: TransactionType[] = ['buy', 'sell', 'swap'];
 // Fiat currencies are not crypto holdings: moving into one is a cession.
 const FIAT_CURRENCIES = [
   'EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'NZD', 'SGD', 'HKD', 'CNY', 'KRW', 'INR',
-  'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'HUF', 'RON', 'BGN', 'TRY', 'BRL', 'MXN', 'ZAR', 'ILS',
+  'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'HUF', 'BGN', 'TRY', 'BRL', 'MXN', 'ZAR', 'ILS',
   'AED', 'SAR', 'THB', 'RUB', 'UAH',
 ];
 
+const FIAT_SET = new Set(FIAT_CURRENCIES);
+
 export function isFiat(currency: string): boolean {
-  return FIAT_CURRENCIES.includes(currency.trim().toUpperCase());
+  return FIAT_SET.has(currency.trim().toUpperCase());
 }
 
 // crypto.randomUUID is missing in insecure contexts (plain http) and old browsers
@@ -98,10 +100,13 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   // data, which silently moves a transaction to another date
   const date = typeof r.transaction_date === 'string' ? r.transaction_date.trim() : '';
   if (!isValidIsoDate(date)) return null;
-  // A date without a time is the same calendar day everywhere only at noon UTC: at
-  // midnight UTC it is the day before in the Americas, and a sale on 1 January would
-  // fall in the previous tax year
-  const storedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T12:00:00.000Z` : date;
+  // A date without a time is a calendar day: it is stored at noon in the local time
+  // zone, so it stays that day for whoever imported it (at midnight UTC it would be the
+  // day before in the Americas, and a sale on 1 January would fall in the previous
+  // tax year; at noon UTC it would be the next day from UTC+12 on)
+  const storedDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)), 12).toISOString()
+    : date;
 
   const now = new Date().toISOString();
   const text = (value: unknown, fallback: () => string) =>

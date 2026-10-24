@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Transaction } from '../types/database';
-import { computePortfolio } from './portfolio';
+import { applyToHeld, canRun, computePortfolio, createHeldState, sortChronologically } from './portfolio';
 
 let n = 0;
 const tx = (o: Partial<Transaction>): Transaction => ({
@@ -229,6 +229,103 @@ describe('computePortfolio', () => {
       const rebuy = tx({ currency_to: 'BTC', amount: 1, total_value: 61000, ...d('2024-05-01') });
       const p = computePortfolio([first, sale, rebuy]);
       expect(find(p, 'BTC')).toMatchObject({ quantity: 1, totalInvested: 61000 });
+    });
+  });
+
+  describe('same-instant ordering with partial holdings and dust', () => {
+    const noon = '2024-03-01T12:00:00.000Z';
+
+    it('defers a sale of more than is held until the purchase that covers it', () => {
+      const first = tx({ currency_to: 'BTC', amount: 1, total_value: 100, transaction_date: '2024-01-01T12:00:00.000Z' });
+      const sale = tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 5, total_value: 2000, transaction_date: noon });
+      const rebuy = tx({ currency_to: 'BTC', amount: 4, total_value: 800, transaction_date: noon });
+      const p = computePortfolio([first, sale, rebuy]);
+      expect(p.holdings).toEqual([]);
+      expect(p.totalInvested).toBe(0);
+    });
+
+    it('treats a quantity that is short by floating point error as enough to sell', () => {
+      // 0.7 + 0.1 is 0.7999999999999999, not 0.8
+      const buys = [
+        tx({ currency_to: 'BTC', amount: 0.7, total_value: 70, transaction_date: '2024-01-01T12:00:00.000Z' }),
+        tx({ currency_to: 'BTC', amount: 0.1, total_value: 10, transaction_date: '2024-01-02T12:00:00.000Z' }),
+      ];
+      const sale = tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 0.8, total_value: 90, transaction_date: noon });
+      const rebuy = tx({ currency_to: 'BTC', amount: 5, total_value: 1000, transaction_date: noon });
+      const p = computePortfolio([...buys, sale, rebuy]);
+      // The sale runs first (entry order): only the rebuy is left, at its own cost
+      expect(find(p, 'BTC')).toMatchObject({ quantity: 5, totalInvested: 1000 });
+    });
+
+    it('does not count dust left by floating point as a holding', () => {
+      const buys = [1234567.891, 2345678.912, 3456789.123].map((amount, i) =>
+        tx({ currency_to: 'DOGE', amount, total_value: amount / 10, transaction_date: `2024-01-0${i + 1}T12:00:00.000Z` })
+      );
+      const sold = tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 7037035.926, total_value: 100000, transaction_date: '2024-01-15T12:00:00.000Z' });
+      const sale = tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 1000, total_value: 300, transaction_date: '2024-02-01T12:00:00.000Z' });
+      const rebuy = tx({ currency_to: 'DOGE', amount: 1000, total_value: 100, transaction_date: '2024-02-01T12:00:00.000Z' });
+      const p = computePortfolio([...buys, sold, sale, rebuy]);
+      expect(p.holdings).toEqual([]);
+    });
+  });
+
+  describe('sortChronologically scales and keeps its rule', () => {
+    // The rule, written the simple way: run the first transaction that can run, or the first one
+    const reference = (group: ReturnType<typeof tx>[], state = createHeldState()) => {
+      const pending = [...group];
+      const out: string[] = [];
+      while (pending.length > 0) {
+        const index = pending.findIndex((t) => canRun(t, state));
+        const [next] = pending.splice(index === -1 ? 0 : index, 1);
+        applyToHeld(next, state);
+        out.push(next.id);
+      }
+      return out;
+    };
+
+    it('orders exactly like the simple rule on random histories', () => {
+      let seed = 987654321;
+      const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const coins = ['A', 'B', 'C', 'EUR'];
+      for (let run = 0; run < 300; run++) {
+        const list = Array.from({ length: 2 + Math.floor(random() * 14) }, () => {
+          const kind = Math.floor(random() * 3);
+          const from = coins[Math.floor(random() * 4)];
+          const to = coins[Math.floor(random() * 3)];
+          const amount = 1 + Math.floor(random() * 4);
+          const common = { amount, total_value: amount * 10, transaction_date: '2024-05-01T12:00:00.000Z' };
+          if (kind === 0) return tx({ currency_to: to, ...common });
+          if (kind === 1) return tx({ transaction_type: 'sell', currency_to: to, ...common });
+          return tx({ transaction_type: 'swap', currency_from: from, currency_to: to === from ? 'A' : to, amount_to: 1 + Math.floor(random() * 4), ...common });
+        });
+        const expected = reference(list);
+        expect(sortChronologically(list).map((t) => t.id)).toEqual(expected);
+      }
+    });
+
+    it('stays fast with 20 000 transactions at the same instant that cannot run', () => {
+      const instant = '2024-01-01T12:00:00.000Z';
+      const sells = Array.from({ length: 20000 }, (_, i) =>
+        tx({ transaction_type: 'sell', currency_to: `C${i % 7}`, amount: 1, total_value: 1, transaction_date: instant })
+      );
+      const swaps = Array.from({ length: 20000 }, (_, i) =>
+        tx({ transaction_type: 'swap', currency_from: `S${i}`, currency_to: `S${i + 1}`, amount: 1, amount_to: 1, total_value: 1, transaction_date: instant })
+      ).reverse();
+      for (const list of [sells, swaps]) {
+        const started = performance.now();
+        expect(sortChronologically(list)).toHaveLength(20000);
+        expect(performance.now() - started).toBeLessThan(1500);
+      }
+    });
+
+    it('puts a chain of swaps listed in reverse in the order it can run', () => {
+      const instant = '2024-01-01T12:00:00.000Z';
+      const first = tx({ currency_to: 'S0', amount: 1, total_value: 1, transaction_date: '2023-12-31T12:00:00.000Z' });
+      const chain = Array.from({ length: 50 }, (_, i) =>
+        tx({ transaction_type: 'swap', currency_from: `S${i}`, currency_to: `S${i + 1}`, amount: 1, amount_to: 1, total_value: 1, transaction_date: instant })
+      );
+      const sorted = sortChronologically([first, ...[...chain].reverse()]);
+      expect(sorted.slice(1).map((t) => t.id)).toEqual(chain.map((t) => t.id));
     });
   });
 });

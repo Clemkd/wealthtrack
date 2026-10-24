@@ -129,20 +129,33 @@ describe('normalizeTransaction', () => {
     }
   });
 
-  it('stores a date without a time at noon UTC, so that it is the same day in every time zone', () => {
+  it('stores a date without a time at noon in the local time zone, so that the day stays the day', () => {
     expect(normalizeTransaction({ ...valid, transaction_date: '2025-01-01' })?.transaction_date).toBe(
-      '2025-01-01T12:00:00.000Z'
+      new Date(2025, 0, 1, 12).toISOString()
     );
+    for (const zone of ['Pacific/Auckland', 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/Martinique']) {
+      vi.stubEnv('TZ', zone);
+      const stored = normalizeTransaction({ ...valid, transaction_date: '2024-12-31' })?.transaction_date as string;
+      const local = new Date(stored);
+      expect([local.getFullYear(), local.getMonth(), local.getDate()]).toEqual([2024, 11, 31]);
+      vi.unstubAllEnvs();
+    }
     expect(normalizeTransaction({ ...valid, transaction_date: '2025-01-01T08:30:00Z' })?.transaction_date).toBe(
       '2025-01-01T08:30:00Z'
     );
   });
 
   it('knows the fiat currencies a crypto holder may meet', () => {
-    for (const code of ['EUR', 'usd', 'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'HUF', 'RON', 'TRY', 'BRL', 'MXN', 'ZAR', 'INR', 'CNY', 'HKD', 'NZD', 'SGD', 'KRW', 'ILS', 'AED']) {
+    for (const code of ['EUR', 'usd', 'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'HUF', 'TRY', 'BRL', 'MXN', 'ZAR', 'INR', 'CNY', 'HKD', 'NZD', 'SGD', 'KRW', 'ILS', 'AED']) {
       expect(isFiat(code)).toBe(true);
     }
-    for (const code of ['BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'DOGE']) expect(isFiat(code)).toBe(false);
+    for (const code of ['BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'DOGE', 'RON', 'ALL', 'ONE']) {
+      expect(isFiat(code)).toBe(false);
+    }
+  });
+
+  it('accepts a purchase of RON (Ronin), which is a crypto and not the Romanian leu', () => {
+    expect(normalizeTransaction({ ...valid, currency_to: 'RON' })).not.toBeNull();
   });
 
   it('refuses a swap towards any fiat currency, not only the common ones', () => {
