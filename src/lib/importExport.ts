@@ -1,6 +1,9 @@
 import JSZip from 'jszip';
-import { Transaction, TransactionType } from '../types/database';
-import { getTransactions, saveTransactions } from './storage';
+import { Transaction } from '../types/database';
+import { getTransactions } from './storage';
+import { escapeCsvField, parseCsv, unescapeCsvField } from './csv';
+import { downloadBlob } from './download';
+import { normalizeTransaction } from './transactions';
 
 const CSV_FILENAME = 'transactions.csv';
 
@@ -21,26 +24,27 @@ const CSV_HEADERS = [
   'updated_at',
 ];
 
-function escapeCsvField(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
+// Free text columns, protected against spreadsheet formulas on export.
+const TEXT_COLUMNS = ['currency_from', 'currency_to', 'notes'];
+
+export interface ImportResult {
+  transactions: Transaction[];
+  skipped: number;
 }
 
-function transactionsToCsv(transactions: Transaction[]): string {
+export function transactionsToCsv(transactions: Transaction[]): string {
   const rows = transactions.map((tx) =>
     [
       tx.id,
       tx.transaction_type,
       tx.currency_from ?? '',
       tx.currency_to,
-      tx.amount.toString(),
-      tx.amount_to?.toString() ?? '',
-      tx.price_per_unit.toString(),
-      tx.total_value.toString(),
-      tx.price_per_unit_usd?.toString() ?? '',
-      tx.total_value_usd?.toString() ?? '',
+      tx.amount,
+      tx.amount_to ?? '',
+      tx.price_per_unit,
+      tx.total_value,
+      tx.price_per_unit_usd ?? '',
+      tx.total_value_usd ?? '',
       tx.transaction_date,
       tx.notes ?? '',
       tx.created_at,
@@ -52,91 +56,49 @@ function transactionsToCsv(transactions: Transaction[]): string {
   return [CSV_HEADERS.join(','), ...rows].join('\n');
 }
 
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
-  let current = '';
-  let inQuotes = false;
+// Invalid rows are skipped and counted rather than turned into bogus transactions.
+export function csvToTransactions(csv: string): ImportResult {
+  const [headerRow, ...dataRows] = parseCsv(csv);
+  if (!headerRow) return { transactions: [], skipped: 0 };
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (inQuotes) {
-      if (char === '"' && i + 1 < line.length && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else if (char === '"') {
-        inQuotes = false;
-      } else {
-        current += char;
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true;
-      } else if (char === ',') {
-        fields.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
+  const headers = headerRow.map((h) => h.trim());
+  const transactions: Transaction[] = [];
+  const seenIds = new Set<string>();
+  let skipped = 0;
+
+  for (const fields of dataRows) {
+    const raw: Record<string, string> = {};
+    headers.forEach((name, i) => {
+      const value = fields[i] ?? '';
+      raw[name] = TEXT_COLUMNS.includes(name) ? unescapeCsvField(value) : value.trim();
+    });
+
+    const tx = normalizeTransaction(raw);
+    if (!tx) {
+      skipped++;
+      continue;
     }
+    if (seenIds.has(tx.id)) tx.id = crypto.randomUUID();
+    seenIds.add(tx.id);
+    transactions.push(tx);
   }
-  fields.push(current);
-  return fields;
-}
 
-function csvToTransactions(csv: string): Transaction[] {
-  const lines = csv.split('\n').filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return [];
-
-  const headers = parseCsvLine(lines[0]);
-  const idxMap = new Map<string, number>();
-  headers.forEach((h, i) => idxMap.set(h.trim(), i));
-
-  const validTypes: TransactionType[] = ['buy', 'sell', 'swap'];
-
-  return lines.slice(1).map((line) => {
-    const fields = parseCsvLine(line);
-    const get = (name: string) => {
-      const idx = idxMap.get(name);
-      return idx !== undefined ? fields[idx]?.trim() ?? '' : '';
-    };
-
-    const txType = get('transaction_type') as TransactionType;
-
-    return {
-      id: get('id') || crypto.randomUUID(),
-      transaction_type: validTypes.includes(txType) ? txType : 'buy',
-      currency_from: get('currency_from') || null,
-      currency_to: get('currency_to'),
-      amount: parseFloat(get('amount')) || 0,
-      amount_to: Number.isFinite(parseFloat(get('amount_to'))) ? parseFloat(get('amount_to')) : null,
-      price_per_unit: parseFloat(get('price_per_unit')) || 0,
-      total_value: parseFloat(get('total_value')) || 0,
-      price_per_unit_usd: get('price_per_unit_usd') ? parseFloat(get('price_per_unit_usd')) : null,
-      total_value_usd: get('total_value_usd') ? parseFloat(get('total_value_usd')) : null,
-      transaction_date: get('transaction_date'),
-      notes: get('notes'),
-      created_at: get('created_at') || new Date().toISOString(),
-      updated_at: get('updated_at') || new Date().toISOString(),
-    };
-  });
+  return { transactions, skipped };
 }
 
 export async function exportToZip(): Promise<void> {
-  const transactions = getTransactions();
-  const csv = transactionsToCsv(transactions);
+  const csv = transactionsToCsv(getTransactions());
 
   const zip = new JSZip();
-  zip.file(CSV_FILENAME, '\ufeff' + csv);
+  zip.file(CSV_FILENAME, '﻿' + csv);
 
   const blob = await zip.generateAsync({ type: 'blob' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `wealthtrack_export_${new Date().toISOString().slice(0, 10)}.zip`;
-  link.click();
-  URL.revokeObjectURL(link.href);
+  downloadBlob(blob, `wealthtrack_export_${new Date().toISOString().slice(0, 10)}.zip`);
 }
 
-export async function importFromZip(file: File): Promise<Transaction[]> {
+// Reads an export archive without touching the stored data: the caller decides
+// whether to replace it.
+export async function readImportZip(file: Blob | ArrayBuffer | Uint8Array): Promise<ImportResult> {
   const zip = await JSZip.loadAsync(file);
   const csvFile = zip.file(CSV_FILENAME);
 
@@ -149,7 +111,11 @@ export async function importFromZip(file: File): Promise<Transaction[]> {
     csvContent = csvContent.slice(1);
   }
 
-  const transactions = csvToTransactions(csvContent);
-  saveTransactions(transactions);
-  return transactions;
+  const result = csvToTransactions(csvContent);
+  if (result.transactions.length === 0) {
+    throw new Error(
+      "Aucune transaction valide dans ce fichier : l'import est annulé, vos données actuelles sont conservées."
+    );
+  }
+  return result;
 }

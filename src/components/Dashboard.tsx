@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { getTransactions } from '../lib/storage';
-import { exportToZip, importFromZip } from '../lib/importExport';
+import { getTransactions, saveTransactions } from '../lib/storage';
+import { exportToZip, readImportZip } from '../lib/importExport';
 import { Transaction } from '../types/database';
 import TransactionForm from './TransactionForm';
 import TransactionList from './TransactionList';
@@ -54,8 +54,16 @@ export default function Dashboard() {
 
     setImportError('');
     try {
-      await importFromZip(file);
-      loadTransactions();
+      const { transactions: imported, skipped } = await readImportZip(file);
+      const skippedNote = skipped > 0 ? ` (${skipped} ligne(s) invalide(s) ignorée(s))` : '';
+      const confirmed = confirm(
+        `Remplacer vos ${transactions.length} transaction(s) actuelle(s) par les ${imported.length} ` +
+          `transaction(s) du fichier${skippedNote} ? Cette action est irréversible.`
+      );
+      if (confirmed) {
+        saveTransactions(imported);
+        loadTransactions();
+      }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Erreur lors de l\'import');
     }

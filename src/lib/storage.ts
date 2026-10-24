@@ -1,15 +1,42 @@
 import { Transaction } from '../types/database';
+import { normalizeTransaction } from './transactions';
 
 const STORAGE_KEY = 'wealthtrack_transactions';
+const CORRUPT_KEY = 'wealthtrack_transactions_corrupt';
 
 function generateId(): string {
   return crypto.randomUUID();
 }
 
+// Keeps what could not be read so it is never silently lost by the next save.
+function backUpUnreadableData(raw: string): void {
+  localStorage.setItem(CORRUPT_KEY, raw);
+}
+
 export function getTransactions(): Transaction[] {
-  const data = localStorage.getItem(STORAGE_KEY);
-  if (!data) return [];
-  return JSON.parse(data) as Transaction[];
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    backUpUnreadableData(raw);
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) {
+    backUpUnreadableData(raw);
+    return [];
+  }
+
+  const transactions = parsed
+    .map(normalizeTransaction)
+    .filter((tx): tx is Transaction => tx !== null);
+  if (transactions.length !== parsed.length) {
+    backUpUnreadableData(raw);
+  }
+  return transactions;
 }
 
 export function saveTransactions(transactions: Transaction[]): void {

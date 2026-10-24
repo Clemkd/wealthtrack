@@ -1,0 +1,83 @@
+// Characters that make a spreadsheet interpret a text cell as a formula.
+const FORMULA_TRIGGERS = ['=', '+', '-', '@', '\t', '\r'];
+
+function startsWithFormulaTrigger(text: string): boolean {
+  return text.length > 0 && FORMULA_TRIGGERS.includes(text[0]);
+}
+
+// Text cells starting with a formula trigger are prefixed with a quote so that
+// opening the file in a spreadsheet cannot run them. Numbers are written as is.
+export function escapeCsvField(value: string | number): string {
+  let text = typeof value === 'number' ? String(value) : value;
+  if (typeof value === 'string' && startsWithFormulaTrigger(text)) {
+    text = `'${text}`;
+  }
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+// Reverses the formula protection added by escapeCsvField.
+export function unescapeCsvField(text: string): string {
+  if (text.length > 1 && text[0] === "'" && FORMULA_TRIGGERS.includes(text[1])) {
+    return text.slice(1);
+  }
+  return text;
+}
+
+function detectDelimiter(text: string): ',' | ';' {
+  let inQuotes = false;
+  let commas = 0;
+  let semicolons = 0;
+  for (const char of text) {
+    if (char === '"') inQuotes = !inQuotes;
+    else if (!inQuotes && (char === '\n' || char === '\r')) break;
+    else if (!inQuotes && char === ',') commas++;
+    else if (!inQuotes && char === ';') semicolons++;
+  }
+  return semicolons > commas ? ';' : ',';
+}
+
+// RFC 4180 style parser working on the whole text, so quoted fields can contain
+// delimiters, quotes and line breaks. Rows made of a single empty field are skipped.
+export function parseCsv(text: string): string[][] {
+  const delimiter = detectDelimiter(text);
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  const endRow = () => {
+    row.push(field);
+    field = '';
+    if (!(row.length === 1 && row[0] === '')) rows.push(row);
+    row = [];
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (inQuotes) {
+      if (char === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === delimiter) {
+      row.push(field);
+      field = '';
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[i + 1] === '\n') i++;
+      endRow();
+    } else {
+      field += char;
+    }
+  }
+  if (field !== '' || row.length > 0) endRow();
+  return rows;
+}
