@@ -1,14 +1,9 @@
-// Characters that make a spreadsheet interpret a text cell as a formula.
-const FORMULA_TRIGGERS = ['=', '+', '-', '@', '\t', '\r'];
-
-function startsWithFormulaTrigger(text: string): boolean {
-  return text.length > 0 && FORMULA_TRIGGERS.includes(text[0]);
-}
 
 // A text gets the protection prefix when it is a formula, or when it already looks
-// like a protected one (so that unescaping gives back exactly what was typed).
+// like a protected one (any number of quotes before the trigger), so that
+// unescaping gives back exactly what was typed.
 function needsFormulaProtection(text: string): boolean {
-  return startsWithFormulaTrigger(text) || (text[0] === "'" && startsWithFormulaTrigger(text.slice(1)));
+  return /^'*[=+\-@\t\r]/.test(text);
 }
 
 // Text cells starting with a formula trigger are prefixed with a quote so that

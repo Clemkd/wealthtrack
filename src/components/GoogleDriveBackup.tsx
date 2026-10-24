@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Cloud, CloudOff, X, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { Transaction } from '../types/database';
-import { getTransactions, saveTransactions } from '../lib/storage';
+import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
   handleRedirectResponse,
@@ -36,7 +36,8 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const [lastBackup, setLastBackup] = useState<string | null>(settings.lastBackupDate);
   const [clientIdInput, setClientIdInput] = useState(settings.clientId);
   const [gisLoaded, setGisLoaded] = useState(false);
-  const lastSeenRef = useRef(JSON.stringify(getTransactions()));
+  // Signature of the transactions at the last render: null until the first one
+  const lastSeenRef = useRef<string | null>(null);
   const backupTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [showRedirectOption, setShowRedirectOption] = useState(false);
@@ -72,7 +73,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   // does (that would upload whatever is local, e.g. nothing on a new device)
   useEffect(() => {
     const signature = JSON.stringify(transactions);
-    const changed = signature !== lastSeenRef.current;
+    const changed = lastSeenRef.current !== null && signature !== lastSeenRef.current;
     lastSeenRef.current = signature;
     if (!changed || !settings.autoBackup || !connected) return;
 

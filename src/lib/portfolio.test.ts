@@ -144,4 +144,32 @@ describe('computePortfolio', () => {
       expect(find(p, 'BTC')).toMatchObject({ quantity: 2, totalInvested: 800, averagePrice: 400 });
     });
   });
+
+  describe('large quantities', () => {
+    it('leaves no ghost position after selling exactly what was bought', () => {
+      const p = computePortfolio([
+        tx({ currency_to: 'DOGE', amount: 5691757.7, total_value: 569175.77, transaction_date: '2026-01-01T00:00:00.000Z' }),
+        tx({ currency_to: 'DOGE', amount: 6853413.15, total_value: 685341.315, transaction_date: '2026-01-02T00:00:00.000Z' }),
+        tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 12545170.85, total_value: 2509034.17, transaction_date: '2026-01-03T00:00:00.000Z' }),
+      ]);
+      expect(p.holdings).toEqual([]);
+      expect(p.totalInvested).toBe(0);
+    });
+
+    it('then treats a later swap from that currency as new money', () => {
+      const p = computePortfolio([
+        tx({ currency_to: 'DOGE', amount: 5691757.7, total_value: 569175.77, transaction_date: '2026-01-01T00:00:00.000Z' }),
+        tx({ currency_to: 'DOGE', amount: 6853413.15, total_value: 685341.315, transaction_date: '2026-01-02T00:00:00.000Z' }),
+        tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 12545170.85, total_value: 2509034.17, transaction_date: '2026-01-03T00:00:00.000Z' }),
+        swap('DOGE', 'ETH', 1000000, 50, 150000, 4),
+      ]);
+      expect(find(p, 'ETH')).toMatchObject({ quantity: 50, totalInvested: 150000 });
+    });
+  });
+
+  it('does not count a swap between two fiat currencies as an investment', () => {
+    const p = computePortfolio([swap('EUR', 'USD', 1000, 1080, 1000, 1)]);
+    expect(p.totalInvested).toBe(0);
+    expect(p.holdings).toEqual([]);
+  });
 });

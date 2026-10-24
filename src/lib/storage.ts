@@ -9,14 +9,19 @@ function generateId(): string {
 }
 
 // Keeps what could not be read so it is never silently lost by the next save. The
-// first copy is kept: later reads must not overwrite it.
-function backUpUnreadableData(raw: string): void {
+// first copy is kept: later reads must not overwrite it. Returns true when this raw
+// content is safely set aside (written now, or already there).
+function backUpUnreadableData(raw: string): boolean {
   try {
-    if (localStorage.getItem(CORRUPT_KEY) === null) {
+    const existing = localStorage.getItem(CORRUPT_KEY);
+    if (existing === null) {
       localStorage.setItem(CORRUPT_KEY, raw);
+      return true;
     }
+    return existing === raw;
   } catch {
-    // Storage full: reading must still work
+    // Storage full: reading must still work, but nothing was set aside
+    return false;
   }
 }
 
@@ -26,6 +31,14 @@ export function hasUnreadableData(): boolean {
 
 export function clearUnreadableData(): void {
   localStorage.removeItem(CORRUPT_KEY);
+}
+
+// The user has seen the notice: what could not be read is dropped from the stored
+// list too (otherwise it would be set aside again at the next read), then the
+// raw copy is released.
+export function acknowledgeUnreadableData(): void {
+  saveTransactions(getTransactions());
+  clearUnreadableData();
 }
 
 export function getTransactions(): Transaction[] {
@@ -48,17 +61,17 @@ export function getTransactions(): Transaction[] {
   const normalized = parsed
     .map(normalizeTransaction)
     .filter((tx): tx is Transaction => tx !== null);
-  if (normalized.length !== parsed.length) {
-    backUpUnreadableData(raw);
-  }
+  const droppedSome = normalized.length !== parsed.length;
+  const droppedLinesAreSafe = droppedSome ? backUpUnreadableData(raw) : true;
 
   // Ids that were missing or duplicated are fixed once and persisted, so that edit
-  // and delete find the transaction that is displayed.
+  // and delete find the transaction that is displayed. The stored list is only
+  // rewritten when nothing would be lost by doing so.
   const { transactions, changed } = dedupeIds(normalized);
-  const hadMissingId = parsed.some(
-    (el) => typeof el === 'object' && el !== null && !(el as { id?: unknown }).id
+  const hadUnusableId = parsed.some(
+    (el) => typeof el === 'object' && el !== null && (typeof (el as { id?: unknown }).id !== 'string' || (el as { id: string }).id === '')
   );
-  if (changed || hadMissingId) {
+  if ((changed || hadUnusableId) && droppedLinesAreSafe) {
     try {
       saveTransactions(transactions);
     } catch {

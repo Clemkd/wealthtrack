@@ -221,6 +221,14 @@ describe('backupToDrive', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2); // search + read, no write
   });
 
+  it('does not write when the remote backup cannot be read (server error)', async () => {
+    signInWithStoredToken();
+    putLocal([]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(drive.backupToDrive()).rejects.toThrow(/503/);
+    expect(fetchMock.mock.calls.some(([, o]) => o?.method === 'PATCH' || o?.method === 'POST')).toBe(false);
+  });
+
   it('accepts an empty local list when the remote backup is empty or absent', async () => {
     signInWithStoredToken();
     putLocal([]);

@@ -315,9 +315,12 @@ async function readBackupFile(fileId: string): Promise<string> {
 
 // --- Public API ---
 
+// A failed read (network, 5xx, 403...) throws and cancels the backup: only a file
+// that is really not a backup counts as having nothing to protect.
 async function remoteBackupHasTransactions(fileId: string): Promise<boolean> {
+  const content = await readBackupFile(fileId);
   try {
-    const data: unknown = JSON.parse(await readBackupFile(fileId));
+    const data: unknown = JSON.parse(content);
     const list = (data as { transactions?: unknown } | null)?.transactions;
     return Array.isArray(list) && list.length > 0;
   } catch {

@@ -1,5 +1,5 @@
 import { Transaction, getReceivedAmount } from '../types/database';
-import { treatFiatSwapAsSale } from './transactions';
+import { prepareForCalculation } from './transactions';
 
 export interface Holding {
   currency: string;
@@ -22,8 +22,14 @@ export interface Portfolio {
   timeline: PortfolioPoint[];
 }
 
-// Quantities below this are floating point residue, not a holding
+// Quantities below this are floating point residue, not a holding. The residue grows
+// with the size of the position (millions of DOGE leave ~1e-9), hence a relative part.
 export const QUANTITY_EPSILON = 1e-12;
+const RELATIVE_EPSILON = 1e-9;
+
+export function isNegligible(quantity: number, largestQuantityHeld: number): boolean {
+  return quantity <= Math.max(QUANTITY_EPSILON, largestQuantityHeld * RELATIVE_EPSILON);
+}
 
 // At the same instant a purchase comes before a swap, which comes before a sale
 // (the other order would sell what is not held yet). Remaining ties keep the entry order.
@@ -42,6 +48,7 @@ export function sortChronologically(transactions: Transaction[]): Transaction[] 
 // swaps from a currency that is not tracked, like EUR) bring money in.
 export function computePortfolio(transactions: Transaction[]): Portfolio {
   const holdings = new Map<string, Holding>();
+  const largest = new Map<string, number>();
 
   const getHolding = (currency: string): Holding => {
     let holding = holdings.get(currency);
@@ -60,11 +67,18 @@ export function computePortfolio(transactions: Transaction[]): Portfolio {
     const removedCost = holding.totalInvested * fraction;
     holding.quantity -= amount;
     holding.totalInvested -= removedCost;
-    if (holding.quantity <= QUANTITY_EPSILON) {
+    if (isNegligible(holding.quantity, largest.get(holding.currency) ?? 0)) {
       holding.quantity = 0;
       holding.totalInvested = 0;
+      largest.set(holding.currency, 0);
     }
     return removedCost;
+  };
+
+  const addQuantity = (holding: Holding, amount: number, cost: number) => {
+    holding.quantity += amount;
+    holding.totalInvested += cost;
+    largest.set(holding.currency, Math.max(largest.get(holding.currency) ?? 0, holding.quantity));
   };
 
   const sumInvested = () => {
@@ -75,12 +89,11 @@ export function computePortfolio(transactions: Transaction[]): Portfolio {
 
   const timeline: PortfolioPoint[] = [];
 
-  sortChronologically(transactions.map(treatFiatSwapAsSale)).forEach((tx) => {
+  sortChronologically(prepareForCalculation(transactions)).forEach((tx) => {
     const holding = getHolding(tx.currency_to);
 
     if (tx.transaction_type === 'buy') {
-      holding.quantity += tx.amount;
-      holding.totalInvested += tx.total_value;
+      addQuantity(holding, tx.amount, tx.total_value);
     } else if (tx.transaction_type === 'sell') {
       removeQuantity(holding, tx.amount);
       holding.totalSold += tx.total_value;
@@ -92,8 +105,7 @@ export function computePortfolio(transactions: Transaction[]): Portfolio {
           transferredCost = removeQuantity(fromHolding, tx.amount);
         }
       }
-      holding.quantity += getReceivedAmount(tx);
-      holding.totalInvested += transferredCost;
+      addQuantity(holding, getReceivedAmount(tx), transferredCost);
     }
 
     timeline.push({ transaction: tx, totalInvested: sumInvested() });

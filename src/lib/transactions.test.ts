@@ -58,8 +58,9 @@ describe('normalizeTransaction', () => {
   });
 
   it('turns an unreadable amount_to into null', () => {
-    expect(normalizeTransaction({ ...valid, amount_to: 'abc' })?.amount_to).toBeNull();
-    expect(normalizeTransaction({ ...valid, amount_to: '5.2' })?.amount_to).toBe(5.2);
+    const swap = { ...valid, transaction_type: 'swap', currency_from: 'SOL', currency_to: 'USDC' };
+    expect(normalizeTransaction({ ...swap, amount_to: 'abc' })?.amount_to).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: '5.2' })?.amount_to).toBe(5.2);
   });
 
   it('fills a missing id, notes and timestamps', () => {
@@ -85,6 +86,20 @@ describe('normalizeTransaction', () => {
     expect(normalizeTransaction({ ...swap, amount_to: 0 })).toBeNull();
     expect(normalizeTransaction({ ...swap, amount_to: -3 })).toBeNull();
     expect(normalizeTransaction({ ...swap, amount_to: 'abc' })?.amount_to).toBeNull();
+  });
+
+  it('ignores a received quantity on a buy or a sell instead of rejecting the line', () => {
+    expect(normalizeTransaction({ ...valid, amount_to: 0 })?.amount_to).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_type: 'sell', amount_to: 7 })?.amount_to).toBeNull();
+  });
+
+  it('rejects a swap between two fiat currencies', () => {
+    const swap = { ...valid, transaction_type: 'swap', currency_from: 'EUR', currency_to: 'USD' };
+    expect(normalizeTransaction(swap)).toBeNull();
+  });
+
+  it('keeps a numeric id, as text, so that it stays the same between reads', () => {
+    expect(normalizeTransaction({ ...valid, id: 5 })?.id).toBe('5');
   });
 
   it('rejects a swap without a source currency', () => {
@@ -140,7 +155,7 @@ describe('validateTransactionInput', () => {
   });
 
   it('refuses a fiat currency as the asset of a buy or sell', () => {
-    expect(validateTransactionInput({ ...input, currencyTo: 'EUR' })).toMatch(/fiat|crypto/i);
+    expect(validateTransactionInput({ ...input, currencyTo: 'EUR' })).toMatch(/monnaie fiat/);
   });
 
   describe('swap', () => {
@@ -163,7 +178,7 @@ describe('validateTransactionInput', () => {
     });
 
     it('refuses a swap towards fiat, which is a taxable sale', () => {
-      expect(validateTransactionInput({ ...swap, currencyTo: 'EUR' })).toMatch(/vente/i);
+      expect(validateTransactionInput({ ...swap, currencyTo: 'EUR' })).toMatch(/cession imposable.*Vente/);
     });
 
     it('requires a source currency', () => {

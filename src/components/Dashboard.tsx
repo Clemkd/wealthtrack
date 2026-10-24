@@ -1,5 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
-import { clearUnreadableData, getTransactions, hasUnreadableData, saveTransactions } from '../lib/storage';
+import { useState, useRef } from 'react';
+import {
+  acknowledgeUnreadableData,
+  getTransactions,
+  hasUnreadableData,
+  saveTransactions,
+} from '../lib/storage';
 import { exportToZip, readImportZip } from '../lib/importExport';
 import { Transaction } from '../types/database';
 import TransactionForm from './TransactionForm';
@@ -12,29 +17,28 @@ import { Plus, BarChart3, History, FileText, Download, Upload } from 'lucide-rea
 
 type TabType = 'overview' | 'history' | 'charts' | 'tax';
 
+// Most recent first
+function loadSortedTransactions(): Transaction[] {
+  const data = getTransactions();
+  data.sort(
+    (a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
+  );
+  return data;
+}
+
 export default function Dashboard() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Read before the first render, so that everything below (the Drive auto-backup
+  // included) starts from the real data and not from an empty list
+  const [transactions, setTransactions] = useState<Transaction[]>(loadSortedTransactions);
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [importError, setImportError] = useState('');
   const [unreadable, setUnreadable] = useState(() => hasUnreadableData());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    loadTransactions();
-  }, []);
-
   const loadTransactions = () => {
-    setLoading(true);
-    const data = getTransactions();
-    data.sort(
-      (a, b) =>
-        new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
-    );
-    setTransactions(data);
+    setTransactions(loadSortedTransactions());
     setUnreadable(hasUnreadableData());
-    setLoading(false);
   };
 
   const handleFormSuccess = () => {
@@ -165,8 +169,9 @@ export default function Dashboard() {
             </p>
             <button
               onClick={() => {
-                clearUnreadableData();
+                acknowledgeUnreadableData();
                 setUnreadable(false);
+                loadTransactions();
               }}
               className="shrink-0 font-semibold underline"
             >
@@ -179,11 +184,6 @@ export default function Dashboard() {
             {importError}
           </div>
         )}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : (
           <>
             {activeTab === 'overview' && (
               <div className="space-y-6">
@@ -225,7 +225,6 @@ export default function Dashboard() {
               </div>
             )}
           </>
-        )}
       </main>
 
       {showForm && <TransactionForm onSuccess={handleFormSuccess} onCancel={() => setShowForm(false)} />}

@@ -1,7 +1,7 @@
 import { Transaction, getReceivedAmount } from '../types/database';
 import { escapeCsvField, quoteCsvField } from './csv';
-import { QUANTITY_EPSILON, sortChronologically } from './portfolio';
-import { treatFiatSwapAsSale } from './transactions';
+import { isNegligible, sortChronologically } from './portfolio';
+import { prepareForCalculation } from './transactions';
 
 export const EXEMPTION_THRESHOLD = 305;
 export const FLAT_TAX_RATE = 0.3;
@@ -40,13 +40,29 @@ export function resolveTaxYear(
 // French method (article 150 VH bis CGI):
 // PV = prix de cession - (prix total d'acquisition × prix de cession / valeur globale du portefeuille)
 export function computeTax(rawTransactions: Transaction[], year: number): TaxData {
-  const transactions = rawTransactions.map(treatFiatSwapAsSale);
-  const held = (currency: string | null) => {
-    const quantity = currency ? holdings.get(currency) || 0 : 0;
-    return quantity > QUANTITY_EPSILON ? quantity : 0;
-  };
-  let prixTotalAcquisition = 0;
+  const transactions = prepareForCalculation(rawTransactions);
   const holdings = new Map<string, number>();
+  const largest = new Map<string, number>();
+
+  const held = (currency: string | null) => {
+    if (!currency) return 0;
+    const quantity = holdings.get(currency) || 0;
+    if (isNegligible(quantity, largest.get(currency) || 0)) {
+      holdings.set(currency, 0);
+      largest.set(currency, 0);
+      return 0;
+    }
+    return quantity;
+  };
+  const addHolding = (currency: string, quantity: number) => {
+    const next = held(currency) + quantity;
+    holdings.set(currency, next);
+    largest.set(currency, Math.max(largest.get(currency) || 0, next));
+  };
+  // Same price as the portfolio uses: the value of the transaction over its quantity
+  const unitPrice = (tx: Transaction) => (tx.amount > 0 ? tx.total_value / tx.amount : tx.price_per_unit);
+
+  let prixTotalAcquisition = 0;
   const lastKnownPrices = new Map<string, number>();
   const gainByTx = new Map<string, number>();
   // Swaps from a currency that is not held bring new money, like a buy
@@ -55,15 +71,15 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
   sortChronologically(transactions).forEach((tx) => {
     if (tx.transaction_type === 'buy') {
       prixTotalAcquisition += tx.total_value;
-      holdings.set(tx.currency_to, (holdings.get(tx.currency_to) || 0) + tx.amount);
-      lastKnownPrices.set(tx.currency_to, tx.price_per_unit);
+      addHolding(tx.currency_to, tx.amount);
+      lastKnownPrices.set(tx.currency_to, unitPrice(tx));
     } else if (tx.transaction_type === 'sell') {
       const prixDeCession = tx.total_value;
-      lastKnownPrices.set(tx.currency_to, tx.price_per_unit);
+      lastKnownPrices.set(tx.currency_to, unitPrice(tx));
 
       let valeurGlobalePortefeuille = 0;
       holdings.forEach((qty, currency) => {
-        if (qty > QUANTITY_EPSILON) {
+        if (!isNegligible(qty, largest.get(currency) || 0)) {
           valeurGlobalePortefeuille += qty * (lastKnownPrices.get(currency) || 0);
         }
       });
@@ -88,12 +104,12 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
         holdings.set(tx.currency_from, Math.max(0, sourceQty - tx.amount));
         // Swaps recorded before amount_to existed have an ambiguous price side
         if (tx.amount_to != null) {
-          lastKnownPrices.set(tx.currency_from, tx.price_per_unit);
+          lastKnownPrices.set(tx.currency_from, unitPrice(tx));
         }
       }
 
       const receivedAmount = getReceivedAmount(tx);
-      holdings.set(tx.currency_to, (holdings.get(tx.currency_to) || 0) + receivedAmount);
+      addHolding(tx.currency_to, receivedAmount);
       if (receivedAmount > 0) {
         lastKnownPrices.set(tx.currency_to, tx.total_value / receivedAmount);
       }

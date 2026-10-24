@@ -54,9 +54,11 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   const currencyFrom = toNullableString(r.currency_from);
   if (type === 'swap' && !currencyFrom) return null;
 
-  // An unreadable received quantity is ignored (legacy fallback), a zero or negative one is not valid
-  const amountTo = toFiniteNumber(r.amount_to);
+  // The received quantity only exists on swaps. An unreadable one is ignored
+  // (legacy fallback), a zero or negative one makes the line invalid.
+  const amountTo = type === 'swap' ? toFiniteNumber(r.amount_to) : null;
   if (amountTo !== null && amountTo <= 0) return null;
+  if (type === 'swap' && currencyFrom && isFiat(currencyFrom) && isFiat(currencyTo)) return null;
 
   const date = typeof r.transaction_date === 'string' ? r.transaction_date.trim() : '';
   if (!date || Number.isNaN(new Date(date).getTime())) return null;
@@ -66,7 +68,7 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
     typeof value === 'string' && value !== '' ? value : fallback();
 
   return {
-    id: text(r.id, newId),
+    id: typeof r.id === 'number' && Number.isFinite(r.id) ? String(r.id) : text(r.id, newId),
     transaction_type: type as TransactionType,
     currency_from: currencyFrom,
     currency_to: currencyTo,
@@ -114,6 +116,17 @@ export function treatFiatSwapAsSale(tx: Transaction): Transaction {
     amount_to: null,
     price_per_unit: tx.amount > 0 ? tx.total_value / tx.amount : 0,
   };
+}
+
+// Transactions as the calculations must see them: swaps towards fiat are sales and
+// a swap between two fiat currencies is not an investment at all.
+export function prepareForCalculation(transactions: Transaction[]): Transaction[] {
+  return transactions
+    .filter(
+      (tx) =>
+        !(tx.transaction_type === 'swap' && tx.currency_from && isFiat(tx.currency_from) && isFiat(tx.currency_to))
+    )
+    .map(treatFiatSwapAsSale);
 }
 
 export interface TransactionInput {

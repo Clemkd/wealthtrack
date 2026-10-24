@@ -54,6 +54,14 @@ describe('computeTax (150 VH bis)', () => {
     const t = computeTax(list, 2026);
     expect(t.totalSells).toBe(0);
     expect(t.netGain).toBe(0);
+    expect(t.totalBuys).toBe(200);
+
+    // The cost of the SOL follows into the USDC: selling it all gives 240 - 200 = 40
+    const later = [
+      ...list,
+      tx({ transaction_type: 'sell', currency_to: 'USDC', amount: 240, total_value: 240, price_per_unit: 1, ...at('2026-03-01') }),
+    ];
+    expect(computeTax(later, 2026).netGain).toBeCloseTo(40);
   });
 
   it('counts a swap from EUR as an acquisition, in the totals and in the gain', () => {
@@ -182,6 +190,33 @@ describe('computeTax (150 VH bis)', () => {
     ];
     expect(computeTax(list, 2025).totalBuys).toBe(100);
     expect(computeTax(list, 2026).totalBuys).toBe(100);
+  });
+});
+
+describe('computeTax prices', () => {
+  it('values holdings from total_value, like the portfolio, when price_per_unit is 0', () => {
+    const list = [
+      tx({ currency_to: 'BTC', amount: 1, total_value: 1000, price_per_unit: 0, ...at('2026-01-01') }),
+      tx({ currency_to: 'ETH', amount: 1, total_value: 100, price_per_unit: 100, ...at('2026-01-02') }),
+      tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 1500, price_per_unit: 0, ...at('2026-01-03') }),
+    ];
+    // VGP = 1500 + 100 ; PV = 1500 - 1100 x 1500 / 1600 = 468.75
+    expect(computeTax(list, 2026).netGain).toBeCloseTo(468.75);
+  });
+
+  it('leaves no ghost holding after selling exactly what was bought (large quantities)', () => {
+    const list = [
+      tx({ currency_to: 'DOGE', amount: 5691757.7, total_value: 569175.77, ...at('2026-01-01') }),
+      tx({ currency_to: 'DOGE', amount: 6853413.15, total_value: 685341.315, ...at('2026-01-02') }),
+      tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 12545170.85, total_value: 2509034.17, ...at('2026-01-03') }),
+      tx({ transaction_type: 'swap', currency_from: 'DOGE', currency_to: 'ETH', amount: 1000000, amount_to: 50, total_value: 150000, ...at('2026-01-04') }),
+    ];
+    expect(computeTax(list, 2026).totalBuys).toBeCloseTo(569175.77 + 685341.315 + 150000, 2);
+  });
+
+  it('does not count a swap between two fiat currencies as an acquisition', () => {
+    const list = [tx({ transaction_type: 'swap', currency_from: 'EUR', currency_to: 'USD', amount: 1000, amount_to: 1080, total_value: 1000, ...at('2026-01-01') })];
+    expect(computeTax(list, 2026).totalBuys).toBe(0);
   });
 });
 

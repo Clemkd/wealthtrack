@@ -33,6 +33,32 @@ describe('Dashboard navigation', () => {
   });
 });
 
+describe('Dashboard data', () => {
+  it('shows the stored transactions on the very first render', () => {
+    store.set(
+      'wealthtrack_transactions',
+      JSON.stringify([
+        {
+          id: 'a',
+          transaction_type: 'buy',
+          currency_from: null,
+          currency_to: 'DOGE',
+          amount: 10,
+          price_per_unit: 1,
+          total_value: 10,
+          price_per_unit_usd: null,
+          total_value_usd: null,
+          transaction_date: '2026-01-01T10:00:00.000Z',
+          notes: '',
+          created_at: '',
+          updated_at: '',
+        },
+      ])
+    );
+    expect(renderToStaticMarkup(<Dashboard />)).toContain('DOGE');
+  });
+});
+
 describe('Dashboard unreadable data notice', () => {
   it('stays quiet when everything could be read', () => {
     expect(renderToStaticMarkup(<Dashboard />)).not.toContain('illisibles');

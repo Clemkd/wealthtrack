@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   addTransaction,
   clearUnreadableData,
+  acknowledgeUnreadableData,
   deleteTransaction,
   getTransactions,
   hasUnreadableData,
@@ -104,6 +105,41 @@ describe('unreadable data safety', () => {
     expect(hasUnreadableData()).toBe(true);
     clearUnreadableData();
     expect(hasUnreadableData()).toBe(false);
+  });
+
+  it('keeps the acknowledgement: set aside entries are purged and not set aside again', () => {
+    store.set(KEY, JSON.stringify([tx(), { amount: 0 }]));
+    getTransactions();
+    expect(hasUnreadableData()).toBe(true);
+
+    acknowledgeUnreadableData();
+    expect(hasUnreadableData()).toBe(false);
+    expect(getTransactions().map((t) => t.id)).toEqual(['a']);
+    expect(hasUnreadableData()).toBe(false);
+    expect(JSON.parse(store.get(KEY) as string)).toHaveLength(1);
+  });
+
+  it('keeps a numeric id stable and usable for edit and delete', () => {
+    store.set(KEY, JSON.stringify([tx({ id: 5 })]));
+    expect(getTransactions()[0].id).toBe('5');
+    deleteTransaction('5');
+    expect(getTransactions()).toEqual([]);
+  });
+
+  it('does not rewrite the stored list when the rejected lines could not be set aside', () => {
+    store.set(CORRUPT_KEY, 'OLD COPY');
+    const raw = JSON.stringify([tx({ id: undefined }), { note: 'rejected', amount: '1,5' }]);
+    store.set(KEY, raw);
+    getTransactions();
+    expect(store.get(KEY)).toBe(raw);
+  });
+
+  it('rewrites once the rejected lines are safely set aside', () => {
+    const raw = JSON.stringify([tx({ id: undefined }), { note: 'rejected' }]);
+    store.set(KEY, raw);
+    getTransactions();
+    expect(store.get(CORRUPT_KEY)).toBe(raw);
+    expect(JSON.parse(store.get(KEY) as string)).toHaveLength(1);
   });
 
   it('keeps ids stable between reads when they were missing', () => {
