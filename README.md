@@ -145,7 +145,8 @@ Les transactions sont stockées dans le `localStorage` du navigateur sous la cl�
 | `transaction_type` | `'buy' \| 'sell' \| 'swap'` | Type de transaction |
 | `currency_from` | `string \| null` | Devise source (pour les swaps) |
 | `currency_to` | `string` | Devise/crypto de destination |
-| `amount` | `number` | Quantité échangée |
+| `amount` | `number` | Quantité achetée, vendue ou envoyée (swap : quantité de `currency_from`) |
+| `amount_to` | `number \| null` | Swap uniquement : quantité reçue de `currency_to` (absent sur les anciens swaps) |
 | `price_per_unit` | `number` | Prix unitaire en EUR |
 | `total_value` | `number` | Valeur totale en EUR |
 | `price_per_unit_usd` | `number \| null` | Prix unitaire en USD |

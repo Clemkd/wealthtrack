@@ -1,13 +1,20 @@
-import { Transaction } from '../types/database';
-import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { Transaction, getReceivedAmount } from '../types/database';
+import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Trash2, Pencil } from 'lucide-react';
 import { deleteTransaction } from '../lib/storage';
+import TransactionForm from './TransactionForm';
 
 interface TransactionListProps {
   transactions: Transaction[];
   onUpdate: () => void;
 }
 
+const formatQuantity = (value: number) =>
+  value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+
 export default function TransactionList({ transactions, onUpdate }: TransactionListProps) {
+  const [editing, setEditing] = useState<Transaction | null>(null);
+
   const handleDelete = (id: string) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette transaction?')) {
       return;
@@ -86,23 +93,39 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       <span className="font-medium text-gray-900">{transaction.currency_to}</span>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleDelete(transaction.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Supprimer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex">
+                    <button
+                      onClick={() => setEditing(transaction)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Modifier"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(transaction.id)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Supprimer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Quantité</span>
+                  <span className="text-gray-600">
+                    {transaction.transaction_type === 'swap' ? 'Quantité envoyée' : 'Quantité'}
+                  </span>
                   <span className="font-medium text-gray-900">
-                    {transaction.amount.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 8,
-                    })}
+                    {formatQuantity(transaction.amount)}
                   </span>
                 </div>
+                {transaction.transaction_type === 'swap' && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Quantité reçue</span>
+                    <span className="font-medium text-gray-900">
+                      {formatQuantity(getReceivedAmount(transaction))}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Prix unitaire</span>
                   <span className="text-gray-700">
@@ -152,6 +175,11 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                   })}{' '}
                   {String(new Date(transaction.transaction_date).getMilliseconds()).padStart(3, '0')}
                 </div>
+                {transaction.notes && (
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap break-words">
+                    {transaction.notes}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -216,12 +244,19 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                     ) : (
                       <span className="font-medium text-gray-900">{transaction.currency_to}</span>
                     )}
+                    {transaction.notes && (
+                      <p className="mt-1 max-w-xs text-xs text-gray-500 whitespace-pre-wrap break-words">
+                        {transaction.notes}
+                      </p>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-right font-medium text-gray-900">
-                    {transaction.amount.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 8,
-                    })}
+                    {formatQuantity(transaction.amount)}
+                    {transaction.transaction_type === 'swap' && (
+                      <div className="text-xs text-gray-500 font-normal">
+                        → {formatQuantity(getReceivedAmount(transaction))}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-right text-gray-700">
                     {transaction.price_per_unit.toLocaleString('fr-FR', {
@@ -270,6 +305,13 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                   </td>
                   <td className="px-6 py-4 text-center">
                     <button
+                      onClick={() => setEditing(transaction)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Modifier"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => handleDelete(transaction.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Supprimer"
@@ -283,6 +325,17 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
           </tbody>
         </table>
       </div>
+
+      {editing && (
+        <TransactionForm
+          transaction={editing}
+          onSuccess={() => {
+            setEditing(null);
+            onUpdate();
+          }}
+          onCancel={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

@@ -36,3 +36,13 @@ export function deleteTransaction(id: string): void {
   const transactions = getTransactions().filter((tx) => tx.id !== id);
   saveTransactions(transactions);
 }
+
+export function updateTransaction(
+  id: string,
+  changes: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>
+): void {
+  const transactions = getTransactions().map((tx) =>
+    tx.id === id ? { ...tx, ...changes, updated_at: new Date().toISOString() } : tx
+  );
+  saveTransactions(transactions);
+}

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Transaction } from '../types/database';
+import { Transaction, getReceivedAmount } from '../types/database';
 import { Download, Calendar, Info } from 'lucide-react';
 
 interface TaxReportProps {
@@ -85,15 +85,17 @@ export default function TaxReport({ transactions }: TaxReportProps) {
         // Swap crypto→crypto: NOT a taxable event under French law
         // Only update portfolio composition, PTA stays the same
         if (tx.currency_from) {
-          const fromPrice = lastKnownPrices.get(tx.currency_from) || 0;
-          const sourceAmount = fromPrice > 0 ? tx.total_value / fromPrice : 0;
           const currentQty = holdings.get(tx.currency_from) || 0;
-          holdings.set(tx.currency_from, Math.max(0, currentQty - sourceAmount));
+          holdings.set(tx.currency_from, Math.max(0, currentQty - tx.amount));
+          lastKnownPrices.set(tx.currency_from, tx.price_per_unit);
         }
 
-        // Add target currency to holdings
-        holdings.set(tx.currency_to, (holdings.get(tx.currency_to) || 0) + tx.amount);
-        lastKnownPrices.set(tx.currency_to, tx.price_per_unit);
+        // Add target currency to holdings, priced from the swap's total value
+        const receivedAmount = getReceivedAmount(tx);
+        holdings.set(tx.currency_to, (holdings.get(tx.currency_to) || 0) + receivedAmount);
+        if (receivedAmount > 0) {
+          lastKnownPrices.set(tx.currency_to, tx.total_value / receivedAmount);
+        }
       }
     });
 
@@ -151,6 +153,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
         'Type',
         'Monnaie',
         'Quantité',
+        'Quantité reçue (swap)',
         'Prix unitaire (EUR)',
         'Valeur totale (EUR)',
         'Prix unitaire (USD)',
@@ -164,6 +167,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
           ? `${tx.currency_from} → ${tx.currency_to}`
           : tx.currency_to,
         tx.amount.toString(),
+        tx.transaction_type === 'swap' ? getReceivedAmount(tx).toString() : '',
         tx.price_per_unit.toString(),
         tx.total_value.toString(),
         tx.price_per_unit_usd?.toString() ?? '',
