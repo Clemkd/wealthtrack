@@ -97,6 +97,12 @@ export function csvToTransactions(csv: string): ImportResult {
   return { transactions: dedupeIds(parsed).transactions, skipped };
 }
 
+// The date in the name is the user's calendar day, not the UTC one
+export function exportFileName(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `wealthtrack_export_${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}.zip`;
+}
+
 export async function exportToZip(): Promise<void> {
   const csv = transactionsToCsv(getTransactions());
 
@@ -104,13 +110,18 @@ export async function exportToZip(): Promise<void> {
   zip.file(CSV_FILENAME, '﻿' + csv);
 
   const blob = await zip.generateAsync({ type: 'blob' });
-  downloadBlob(blob, `wealthtrack_export_${new Date().toISOString().slice(0, 10)}.zip`);
+  downloadBlob(blob, exportFileName(new Date()));
 }
 
 // Reads an export archive without touching the stored data: the caller decides
 // whether to replace it.
 export async function readImportZip(file: Blob | ArrayBuffer | Uint8Array): Promise<ImportResult> {
-  const zip = await JSZip.loadAsync(file);
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(file);
+  } catch {
+    throw new Error("Ce fichier n'est pas une archive ZIP valide : choisissez un export WealthTrack.");
+  }
   const csvFile = zip.file(CSV_FILENAME);
 
   if (!csvFile) {

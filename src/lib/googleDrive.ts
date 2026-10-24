@@ -1,5 +1,5 @@
 import { Transaction } from '../types/database';
-import { getTransactions, getUnreadableDataCopy, isListDurable } from './storage';
+import { getTransactions, getUnreadableDataCopy, isListDurable, onListDurable } from './storage';
 import { signatureHash } from './autoBackup';
 import { safeLocal, safeSession } from './safeStorage';
 import { dedupeIds, normalizeTransaction } from './transactions';
@@ -119,6 +119,16 @@ export function saveGDriveSettings(settings: GDriveSettings): void {
   else safeLocal.setItemInMemory(SETTINGS_KEY, text);
 }
 
+// Whether the settings are saved on this device (they are kept in memory while the list is)
+export function areSettingsSaved(): boolean {
+  return !safeLocal.isInMemory(SETTINGS_KEY);
+}
+
+// Once the list is saved again, the reference that was held back goes to the disk with it
+onListDurable(() => {
+  if (safeLocal.isInMemory(SETTINGS_KEY)) saveGDriveSettings(getGDriveSettings());
+});
+
 // Applies a change on top of what is stored now, not on a copy that may predate a
 // backup which recorded its date in the meantime.
 export function updateGDriveSettings(changes: Partial<GDriveSettings>): GDriveSettings {
@@ -236,6 +246,20 @@ function getRedirectUri(): string {
   return window.location.origin + window.location.pathname;
 }
 
+// Google's error codes, told to the user in French
+function authErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'access_denied':
+      return "L'accès à Google Drive a été refusé : autorisez l'application pour pouvoir sauvegarder.";
+    case 'popup_closed':
+      return 'La fenêtre de connexion Google a été fermée avant la fin de la connexion.';
+    case 'popup_failed_to_open':
+      return "La fenêtre de connexion Google n'a pas pu s'ouvrir (bloquée par le navigateur ?).";
+    default:
+      return 'La connexion à Google a échoué. Réessayez.';
+  }
+}
+
 export function signIn(clientId: string, useRedirect = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
@@ -249,7 +273,7 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
       scope: SCOPES,
       callback: (response) => {
         if (response.error) {
-          reject(new Error(`Erreur d'authentification: ${response.error}`));
+          reject(new Error(authErrorMessage(response.error)));
           return;
         }
         accessToken = response.access_token;
@@ -265,7 +289,7 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
       config.state = beginRedirectFlow();
     } else {
       config.error_callback = (error) => {
-        reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
+        reject(new Error(authErrorMessage(error.type)));
       };
     }
 
@@ -297,10 +321,16 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
     Object.assign(headers, extra);
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch {
+    // The browser's own wording ("Failed to fetch", "Load failed") says nothing to the user
+    throw new Error('Connexion à Google Drive impossible : vérifiez votre connexion internet.');
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
@@ -308,6 +338,11 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
       tokenExpiresAt = 0;
       clearPersistedToken();
       throw new Error('Session expirée. Veuillez vous reconnecter.');
+    }
+    if (response.status === 403) {
+      throw new Error(
+        "Google Drive a refusé l'accès (403) : vérifiez que l'autorisation d'accès à Drive est accordée et que l'API Google Drive est activée pour ce Client ID."
+      );
     }
     throw new Error(`Erreur Google Drive (${response.status})`);
   }
@@ -386,7 +421,7 @@ async function remoteBackupHasTransactions(fileId: string): Promise<boolean> {
 }
 
 const NOT_SYNCHRONISED_MESSAGE =
-  "Sauvegarde annulée : la sauvegarde Google Drive contient des transactions que cet appareil n'a pas synchronisées (autre appareil, ou première connexion). Restaurez-la d'abord.";
+  "Sauvegarde annulée : la sauvegarde Google Drive contient des transactions que cet appareil n'a pas synchronisées (autre appareil, ou première connexion). Vous pouvez la restaurer, mais la restauration remplacera les données de cet appareil : exportez-les d'abord si elles comptent.";
 const UNREADABLE_DATA_MESSAGE =
   'Sauvegarde annulée : des données locales illisibles ont été écartées, la liste de cet appareil est peut-être incomplète. Téléchargez la copie et acquittez l\'avertissement, ou restaurez Google Drive.';
 
@@ -420,6 +455,15 @@ async function runBackup(force: boolean): Promise<string> {
     (await remoteBackupHasTransactions(existing.id))
   ) {
     throw new BackupConflictError();
+  }
+
+  // Forced, an empty list still never replaces a backup that holds transactions, even
+  // when the user agreed to overwrite: this device has nothing to offer in exchange
+  // (an up-to-date device that emptied its list is not forced, the guard above lets it pass)
+  if (force && existing && transactions.length === 0 && (await remoteBackupHasTransactions(existing.id))) {
+    throw new Error(
+      "Sauvegarde annulée : la liste de cet appareil est vide alors que la sauvegarde Google Drive contient des transactions. Restaurez-la plutôt."
+    );
   }
 
   const content = JSON.stringify({ transactions, exportedAt: new Date().toISOString() });

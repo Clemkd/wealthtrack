@@ -50,4 +50,10 @@ describe('invested capital labels', () => {
     }
     expect(errors.flat().join(' ')).not.toMatch(/title element received an array/i);
   });
+
+  it('does not show the same count twice', () => {
+    const html = renderToStaticMarkup(<PortfolioStats transactions={[buy]} />);
+    expect(html).toContain('Cryptos détenues');
+    expect(html).not.toContain('>Positions<');
+  });
 });

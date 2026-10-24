@@ -138,8 +138,23 @@ export function getTransactions(): Transaction[] {
   return transactions;
 }
 
+const durableListeners: Array<() => void> = [];
+
+// For what depends on the list being saved (it is kept back while it is not): called
+// when the list goes from "only in this session" to saved on this device.
+export function onListDurable(listener: () => void): void {
+  durableListeners.push(listener);
+}
+
 // Returns whether the list is now saved on this device.
 export function saveTransactions(transactions: Transaction[]): boolean {
+  const wasDurable = isListDurable();
+  const saved = writeTransactions(transactions);
+  if (saved && !wasDurable) durableListeners.forEach((listener) => listener());
+  return saved;
+}
+
+function writeTransactions(transactions: Transaction[]): boolean {
   const text = JSON.stringify(transactions);
   // Raw lines that could not be set aside: try again now, the room may have been made
   if (pendingRaw !== null && backUpUnreadableData(pendingRaw)) pendingRaw = null;

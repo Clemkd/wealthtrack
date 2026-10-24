@@ -403,8 +403,9 @@ describe('computeTax values received and kept', () => {
       tx({ amount: 1, total_value: 50, price_per_unit: 50, ...at('2026-01-03') }),
       tx({ transaction_type: 'sell', amount: 1, total_value: 80, price_per_unit: 80, ...at('2026-01-04') }),
     ];
-    // First sale: PV 100, cost left 0 (not -100). Second: PTA 50, VGP 80, PV = 80 - 50 = 30
-    expect(computeTax(list, 2026).netGain).toBe(130);
+    // First sale: the 2 sold were in the portfolio (VGP 300), all the cost goes with them:
+    // PV = 300 - 100 = 200, cost left 0 (not -100). Second: PTA 50, VGP 80, PV = 80 - 50 = 30
+    expect(computeTax(list, 2026).netGain).toBe(230);
   });
 
   it('tolerates dust relative to the largest quantity ever held, not to the current one', () => {
@@ -566,5 +567,41 @@ describe('taxReportToCsv', () => {
       tx({ transaction_type: 'sell', amount: 0.5, total_value: 2500, price_per_unit: 5000, ...at('2026-02-01') }),
     ];
     expect(taxReportToCsv(data(list))).toContain('Plus-value nette,-2500.00 €');
+  });
+});
+
+describe('computeTax when more is sold than the recorded holdings', () => {
+  it('values the sold crypto in the portfolio even if it was never recorded', () => {
+    const list = [
+      tx({ currency_to: 'ETH', amount: 1, total_value: 2000, price_per_unit: 2000, ...at('2026-01-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 30000, price_per_unit: 30000, ...at('2026-02-01') }),
+    ];
+    // Portfolio 32 000 €, acquisition fraction 2 000 × 30 000 / 32 000 = 1 875 €
+    expect(computeTax(list, 2026).capitalGains).toBe(28125);
+  });
+
+  it('declares the whole price as a gain when nothing at all was bought', () => {
+    const list = [tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 30000, price_per_unit: 30000, ...at('2026-02-01') })];
+    expect(computeTax(list, 2026).capitalGains).toBe(30000);
+  });
+
+  it('adds only the missing quantity when the sale is partly covered', () => {
+    const list = [
+      tx({ currency_to: 'BTC', amount: 0.5, total_value: 20000, price_per_unit: 40000, ...at('2026-01-01') }),
+      tx({ currency_to: 'ETH', amount: 1, total_value: 2000, price_per_unit: 2000, ...at('2026-01-02') }),
+      tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 30000, price_per_unit: 30000, ...at('2026-02-01') }),
+    ];
+    // Portfolio before the sale: 0.5 BTC and 0.5 missing BTC at 30 000 = 30 000, + 2 000 ETH = 32 000
+    // Fraction 22 000 × 30 000 / 32 000 = 20 625 -> gain 9 375
+    expect(computeTax(list, 2026).capitalGains).toBe(9375);
+  });
+});
+
+describe('taxReportToCsv type labels', () => {
+  it('writes the transaction types in French', () => {
+    const csv = taxReportToCsv(computeTax([tx(at('2026-01-01')), tx({ transaction_type: 'sell', total_value: 10, ...at('2026-01-02') })], 2026));
+    expect(csv).toContain(',Achat,');
+    expect(csv).toContain(',Vente,');
+    expect(csv).not.toMatch(/,(buy|sell|swap),/);
   });
 });

@@ -6,8 +6,10 @@ import Dialog from './Dialog';
 import Notice from './Notice';
 import { shouldScheduleBackup, signatureHash, transactionsSignature } from '../lib/autoBackup';
 import { saveTransactions } from '../lib/storage';
+import { restoredMessage } from '../lib/format';
 import {
   initGoogleDrive,
+  areSettingsSaved,
   consumeRedirectResponse,
   describeRedirectOutcome,
   restoreSession,
@@ -145,9 +147,13 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
       setConnected(true);
       setAutoBackupError('');
       setSuccess('Connecté à Google Drive');
-      const info = await getBackupInfo();
-      if (info) {
-        setLastBackup(info.modifiedTime);
+      // The connection is made: failing to read the backup date must not turn it into
+      // an error shown next to "connected"
+      try {
+        const info = await getBackupInfo();
+        if (info) setLastBackup(info.modifiedTime);
+      } catch (err) {
+        console.warn('Impossible de récupérer les infos de sauvegarde:', err);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erreur de connexion';
@@ -180,7 +186,7 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
       } catch (err) {
         if (!(err instanceof BackupConflictError)) throw err;
         const overwrite = window.confirm(
-          `${err.message}\n\nÉcraser quand même la sauvegarde Google Drive par les données de cet appareil ?`
+          `${err.message}\n\nÉcraser quand même la sauvegarde Google Drive par les ${transactions.length} transaction(s) de cet appareil ?`
         );
         if (!overwrite) {
           setError(err.message);
@@ -222,8 +228,7 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
       setAutoBackupError('');
       onRestore();
       setSuccess(
-        `${restored.length} transactions restaurées` +
-          (skipped > 0 ? ` (${skipped} entrée(s) invalide(s) ignorée(s))` : '') +
+        restoredMessage(restored.length, skipped) +
           (saved
             ? ''
             : " — mais elles n'ont pas pu être enregistrées sur cet appareil (stockage plein ou refusé) : elles seront perdues à la fermeture de la page.")
@@ -245,7 +250,11 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
 
   const handleSaveClientId = () => {
     setSettings(updateGDriveSettings({ clientId: clientIdInput }));
-    setSuccess('Client ID enregistré');
+    setSuccess(
+      areSettingsSaved()
+        ? 'Client ID enregistré'
+        : "Client ID retenu pour cette session seulement : le stockage du navigateur ne peut pas l'enregistrer pour le moment."
+    );
   };
 
   return (

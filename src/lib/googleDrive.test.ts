@@ -687,3 +687,81 @@ describe('what the user is told when Google sends them back', () => {
     expect(drive.describeRedirectOutcome('none')).toEqual({ openPanel: false, error: '', success: '' });
   });
 });
+
+describe('overwriting the Drive backup', () => {
+  const found = { ok: true, json: async () => ({ files: [{ id: 'f1', name: 'b', modifiedTime: '2026-02-02T00:00:00Z' }] }) };
+  const remoteHolds = (n: number) => ({
+    ok: true,
+    text: async () => JSON.stringify({ transactions: Array.from({ length: n }, (_, i) => ({ ...validTx, id: `r${i}` })) }),
+  });
+
+  it('never replaces a backup that holds transactions with an empty list, even when forced', async () => {
+    signInWithStoredToken();
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(remoteHolds(30));
+    await expect(drive.backupToDrive({ force: true })).rejects.toThrow(/vide/);
+    // Nothing was written: only the search and the read happened
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('says that restoring replaces what this device holds', async () => {
+    signInWithStoredToken();
+    local.set(TX_KEY, JSON.stringify([validTx]));
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(remoteHolds(3));
+    await expect(drive.backupToDrive()).rejects.toThrow(/remplacera/);
+  });
+});
+
+describe('Google errors are told in French', () => {
+  const signInWith = (behaviour: (config: { callback: (r: unknown) => void; error_callback?: (e: { type: string }) => void }) => void) => {
+    win.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: never) => ({ requestAccessToken: () => behaviour(config) }),
+        },
+      },
+    };
+    return drive.signIn('client');
+  };
+
+  it('explains a closed or refused sign-in window', async () => {
+    await expect(signInWith((c) => c.callback({ error: 'access_denied' }))).rejects.toThrow(/refusé/);
+    await expect(signInWith((c) => c.error_callback?.({ type: 'popup_closed' }))).rejects.toThrow(/fermée/);
+    await expect(signInWith((c) => c.error_callback?.({ type: 'popup_failed_to_open' }))).rejects.toThrow(/ouvrir/);
+    await expect(signInWith((c) => c.callback({ error: 'weird' }))).rejects.toThrow(/échoué/);
+  });
+
+  it('explains a network that is down', async () => {
+    signInWithStoredToken();
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await expect(drive.backupToDrive()).rejects.toThrow(/Connexion à Google Drive impossible/);
+  });
+
+  it('explains a refused access', async () => {
+    signInWithStoredToken();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });
+    await expect(drive.backupToDrive()).rejects.toThrow(/autorisation/);
+  });
+});
+
+describe('the synchronisation reference follows the list once it is saved again', () => {
+  it('is written to the disk as soon as the list can be saved', async () => {
+    signInWithStoredToken();
+    const refusing = {
+      ...storage(local),
+      setItem: (k: string, v: string) => {
+        if (k === TX_KEY) throw new DOMException('full', 'QuotaExceededError');
+        local.set(k, v);
+      },
+    };
+    vi.stubGlobal('localStorage', refusing);
+    const storage_ = await import('./storage');
+    storage_.saveTransactions([validTx as never]);
+    drive.updateGDriveSettings({ lastBackupDate: 'T2', lastBackedUpHash: 'h2' });
+    expect(local.get(SETTINGS_KEY)).toBeUndefined();
+
+    vi.stubGlobal('localStorage', storage(local));
+    expect(storage_.saveTransactions([validTx as never, { ...validTx, id: 'b' } as never])).toBe(true);
+    expect(JSON.parse(local.get(SETTINGS_KEY) as string)).toMatchObject({ lastBackupDate: 'T2', lastBackedUpHash: 'h2' });
+    expect(drive.areSettingsSaved()).toBe(true);
+  });
+});

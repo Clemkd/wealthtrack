@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Transaction } from '../types/database';
 import { computePortfolio } from '../lib/portfolio';
 import { formatPrice } from '../lib/format';
-import { Wallet, TrendingUp, Coins, PieChart } from 'lucide-react';
+import { Wallet, TrendingUp, Coins } from 'lucide-react';
 
 interface PortfolioStatsProps {
   transactions: Transaction[];
@@ -15,7 +15,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <div className="p-2 bg-blue-100 rounded-lg">
@@ -42,7 +42,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
           <p className="text-lg sm:text-2xl font-bold text-gray-900">{uniqueCurrencies}</p>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+        <div className="col-span-2 md:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <div className="p-2 bg-orange-100 rounded-lg">
               <TrendingUp aria-hidden="true" className="w-5 h-5 text-orange-700" />
@@ -50,16 +50,6 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
             <h3 className="text-xs sm:text-sm font-medium text-gray-600">Transactions</h3>
           </div>
           <p className="text-lg sm:text-2xl font-bold text-gray-900">{totalTransactions}</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
-          <div className="flex items-center gap-2 sm:gap-3 mb-2">
-            <div className="p-2 bg-slate-100 rounded-lg">
-              <PieChart aria-hidden="true" className="w-5 h-5 text-slate-600" />
-            </div>
-            <h3 className="text-xs sm:text-sm font-medium text-gray-600">Positions</h3>
-          </div>
-          <p className="text-lg sm:text-2xl font-bold text-gray-900">{holdings.length}</p>
         </div>
       </div>
 

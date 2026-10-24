@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Transaction } from '../types/database';
 import { computePortfolio } from '../lib/portfolio';
+import { timePositions } from '../lib/format';
 
 interface PerformanceChartProps {
   transactions: Transaction[];
@@ -42,8 +43,10 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
   const minValue = Math.min(...chartData.map((d) => d.cumulativeValue), 0);
   const valueRange = maxValue - minValue || 1;
 
-  const xScale = (index: number) =>
-    padding + (index / (chartData.length - 1 || 1)) * (width - 2 * padding);
+  // Points sit at their date, not at their rank: three years between two purchases
+  // must look like three years
+  const positions = timePositions(chartData.map((d) => d.date.getTime()));
+  const xScale = (index: number) => padding + positions[index] * (width - 2 * padding);
 
   const yScale = (value: number) =>
     height - padding - ((value - minValue) / valueRange) * (height - 2 * padding);

@@ -90,6 +90,10 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
           valeurGlobalePortefeuille += qty * (lastKnownPrices.get(currency) || 0);
         }
       });
+      // What is sold was part of the portfolio at that moment, even when the records
+      // do not hold all of it (received elsewhere, history incomplete): without it the
+      // sold part would be missing from the total and the gain understated
+      valeurGlobalePortefeuille += Math.max(0, tx.amount - held(tx.currency_to)) * unitPrice(tx);
 
       let plusValue = 0;
       if (valeurGlobalePortefeuille > 0) {
@@ -179,6 +183,8 @@ export function estimateTax(data: TaxData): TaxEstimate {
   };
 }
 
+const TYPE_LABELS: Record<string, string> = { buy: 'Achat', sell: 'Vente', swap: 'Swap' };
+
 export function taxReportToCsv(data: TaxData): string {
   const { isExempt, estimatedTax } = estimateTax(data);
   const eur = (value: number) => `${value.toFixed(2)} €`;
@@ -223,7 +229,7 @@ export function taxReportToCsv(data: TaxData): string {
     ].map(q),
     ...data.transactions.map((tx) => [
       q(new Date(tx.transaction_date).toLocaleDateString('fr-FR')),
-      q(tx.transaction_type),
+      q(TYPE_LABELS[tx.transaction_type] ?? tx.transaction_type),
       tx.transaction_type === 'swap'
         ? u(`${tx.currency_from} → ${tx.currency_to}`)
         : u(tx.currency_to),

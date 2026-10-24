@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 import { Transaction } from '../types/database';
-import { csvToTransactions, readImportZip, transactionsToCsv } from './importExport';
+import { csvToTransactions, exportFileName, readImportZip, transactionsToCsv } from './importExport';
 import { parseCsv } from './csv';
 
 const tx = (overrides: Partial<Transaction> = {}): Transaction => ({
@@ -182,5 +182,18 @@ describe('readImportZip', () => {
     const csv = String.fromCharCode(0xfeff) + transactionsToCsv([tx({ id: 'keep-me' })]);
     expect((await readImportZip(await zipOf(csv))).transactions.map((t) => t.id)).toEqual(['keep-me']);
     expect(csvToTransactions(csv).transactions[0].id).toBe('keep-me');
+  });
+});
+
+describe('readImportZip with something that is not an archive', () => {
+  it('tells the user in French', async () => {
+    await expect(readImportZip(new TextEncoder().encode('just text'))).rejects.toThrow(/archive ZIP/);
+  });
+});
+
+describe('exportFileName', () => {
+  it('uses the local date, not the UTC one', () => {
+    // 19:00 on 1 January in Los Angeles (the test time zone) is already 2 January in UTC
+    expect(exportFileName(new Date('2026-01-02T03:00:00.000Z'))).toBe('wealthtrack_export_2026-01-01.zip');
   });
 });
