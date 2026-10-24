@@ -345,7 +345,7 @@ describe('computeTax amounts are exact to the cent', () => {
 });
 
 describe('computeTax transactions at the same instant', () => {
-  const d = (iso: string) => ({ transaction_date: `${iso}T00:00:00.000Z` });
+  const d = (iso: string) => ({ transaction_date: `${iso}T12:00:00.000Z` });
 
   it('chains swaps made on the same day whichever way the file lists them', () => {
     const purchase = tx({ currency_to: 'BTC', amount: 1, total_value: 1000, price_per_unit: 1000, ...d('2024-01-01') });

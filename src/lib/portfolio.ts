@@ -48,19 +48,22 @@ function sourceOf(tx: Transaction): string | null {
   return source && !isFiat(source) ? source : null;
 }
 
+// Whether a quantity held covers an amount, with the dust tolerance
+function covers(have: number, amount: number): boolean {
+  return have + Math.max(QUANTITY_EPSILON, have * RELATIVE_EPSILON) >= amount;
+}
+
 // Whether a transaction can run given what is held: a purchase always can, a sale or
 // a swap needs its source in sufficient quantity (a fiat source is new money).
 export function canRun(tx: Transaction, state: HeldState): boolean {
   const source = sourceOf(tx);
   if (source === null) return true;
-  const have = state.quantities.get(source) ?? 0;
-  return have + Math.max(QUANTITY_EPSILON, have * RELATIVE_EPSILON) >= tx.amount;
+  return covers(state.quantities.get(source) ?? 0, tx.amount);
 }
 
-// Applies a transaction to what is held and returns the currencies whose quantity grew
-// (only those can unblock a transaction that was waiting).
+// Applies a transaction to what is held and returns the currencies whose quantity changed.
 export function applyToHeld(tx: Transaction, state: HeldState): string[] {
-  const grew: string[] = [];
+  const changed: string[] = [];
   const add = (currency: string, delta: number) => {
     const before = state.quantities.get(currency) ?? 0;
     let next = Math.max(0, before + delta);
@@ -71,7 +74,7 @@ export function applyToHeld(tx: Transaction, state: HeldState): string[] {
     }
     state.quantities.set(currency, next);
     state.largest.set(currency, peak);
-    if (next > before) grew.push(currency);
+    if (next !== before) changed.push(currency);
   };
   if (tx.transaction_type === 'buy') add(tx.currency_to, tx.amount);
   else if (tx.transaction_type === 'sell') add(tx.currency_to, -tx.amount);
@@ -79,33 +82,39 @@ export function applyToHeld(tx: Transaction, state: HeldState): string[] {
     if (tx.currency_from) add(tx.currency_from, -tx.amount);
     add(tx.currency_to, getReceivedAmount(tx));
   }
-  return grew;
+  return changed;
 }
 
-// Binary min-heap of entry positions
-class MinHeap {
-  private items: number[] = [];
+// Binary min-heap
+class MinHeap<T> {
+  private items: T[] = [];
+
+  constructor(private readonly before: (a: T, b: T) => boolean) {}
 
   get size(): number {
     return this.items.length;
   }
 
-  push(value: number): void {
+  peek(): T {
+    return this.items[0];
+  }
+
+  push(value: T): void {
     const items = this.items;
     items.push(value);
     let i = items.length - 1;
     while (i > 0) {
       const parent = (i - 1) >> 1;
-      if (items[parent] <= items[i]) break;
+      if (!this.before(items[i], items[parent])) break;
       [items[parent], items[i]] = [items[i], items[parent]];
       i = parent;
     }
   }
 
-  pop(): number {
+  pop(): T {
     const items = this.items;
     const top = items[0];
-    const last = items.pop() as number;
+    const last = items.pop() as T;
     if (items.length > 0) {
       items[0] = last;
       let i = 0;
@@ -113,8 +122,8 @@ class MinHeap {
         const left = 2 * i + 1;
         const right = left + 1;
         let smallest = i;
-        if (left < items.length && items[left] < items[smallest]) smallest = left;
-        if (right < items.length && items[right] < items[smallest]) smallest = right;
+        if (left < items.length && this.before(items[left], items[smallest])) smallest = left;
+        if (right < items.length && this.before(items[right], items[smallest])) smallest = right;
         if (smallest === i) break;
         [items[smallest], items[i]] = [items[i], items[smallest]];
         i = smallest;
@@ -124,42 +133,117 @@ class MinHeap {
   }
 }
 
+// Minimum over a prefix of values, with removals
+class MinTree {
+  private readonly size: number;
+  private readonly tree: number[];
+
+  constructor(values: number[]) {
+    let size = 1;
+    while (size < values.length) size <<= 1;
+    this.size = size;
+    this.tree = new Array<number>(2 * size).fill(Infinity);
+    values.forEach((value, i) => (this.tree[size + i] = value));
+    for (let i = size - 1; i >= 1; i--) this.tree[i] = Math.min(this.tree[2 * i], this.tree[2 * i + 1]);
+  }
+
+  remove(position: number): void {
+    let i = this.size + position;
+    this.tree[i] = Infinity;
+    for (i >>= 1; i >= 1; i >>= 1) this.tree[i] = Math.min(this.tree[2 * i], this.tree[2 * i + 1]);
+  }
+
+  // Smallest value among positions 0..last
+  prefixMin(last: number): number {
+    if (last < 0) return Infinity;
+    let result = Infinity;
+    let low = this.size;
+    let high = this.size + last + 1;
+    while (low < high) {
+      if (low & 1) result = Math.min(result, this.tree[low++]);
+      if (high & 1) result = Math.min(result, this.tree[--high]);
+      low >>= 1;
+      high >>= 1;
+    }
+    return result;
+  }
+}
+
+// The transactions of a group that need one source currency, by quantity needed
+interface SourceQueue {
+  needs: number[]; // quantities needed, ascending
+  tree: MinTree; // entry position of each, removed once run
+}
+
+// The first one (in entry order) among those of a source that the quantity held covers
+function firstCovered(queue: SourceQueue, held: number): number {
+  const reach = held + Math.max(QUANTITY_EPSILON, held * RELATIVE_EPSILON);
+  let low = 0;
+  let high = queue.needs.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (queue.needs[middle] <= reach) low = middle + 1;
+    else high = middle;
+  }
+  return queue.tree.prefixMin(low - 1);
+}
+
 // Orders transactions that share an instant: they keep their entry order, except that
 // one which cannot run yet (what it sells or swaps is not held in sufficient quantity)
-// waits until something brings that currency in. When nothing can run, the first one
-// in entry order goes. Same result as scanning for the first runnable one at every
-// step, in O(n log n): runnable ones sit in a heap, the others wait on their source.
+// waits until the quantity held covers it. When nothing can run, the first one in entry
+// order goes. Same result as scanning for the first runnable one at every step, in
+// O(n log n): purchases and fiat swaps are always runnable (a heap by entry order); for
+// each source currency the others are kept sorted by quantity needed, so that the first
+// covered one is a prefix query; each source offers its candidate to a global heap,
+// checked again when taken since what is held moves.
 function orderInstant(group: Transaction[], state: HeldState): Transaction[] {
   const alive = group.map(() => true);
-  const ready = new MinHeap();
-  const waiting = new Map<string, number[]>();
+  const free = new MinHeap<number>((a, b) => a < b);
+  const bySource = new Map<string, number[]>();
 
-  const place = (index: number) => {
-    const tx = group[index];
-    if (canRun(tx, state)) {
-      ready.push(index);
-      return;
-    }
-    const source = sourceOf(tx) as string;
-    const list = waiting.get(source);
-    if (list) list.push(index);
-    else waiting.set(source, [index]);
+  group.forEach((tx, index) => {
+    const source = sourceOf(tx);
+    if (source === null) free.push(index);
+    else if (bySource.has(source)) (bySource.get(source) as number[]).push(index);
+    else bySource.set(source, [index]);
+  });
+
+  const need = (index: number) => (Number.isNaN(group[index].amount) ? Infinity : group[index].amount);
+  const queues = new Map<string, SourceQueue>();
+  const positionOf = new Map<number, number>();
+  bySource.forEach((members, source) => {
+    members.sort((a, b) => need(a) - need(b) || a - b);
+    members.forEach((index, position) => positionOf.set(index, position));
+    queues.set(source, { needs: members.map(need), tree: new MinTree(members) });
+  });
+
+  // Candidates: the first covered transaction of a source, and which source it came from
+  const candidates = new MinHeap<{ index: number; source: string }>((a, b) => a.index < b.index);
+  const offer = (source: string) => {
+    const queue = queues.get(source);
+    if (!queue) return;
+    const index = firstCovered(queue, state.quantities.get(source) ?? 0);
+    if (index !== Infinity) candidates.push({ index, source });
   };
-  group.forEach((_, index) => place(index));
+  queues.forEach((_, source) => offer(source));
 
   const ordered: Transaction[] = [];
   let firstAlive = 0;
   while (ordered.length < group.length) {
-    let next = -1;
-    while (ready.size > 0) {
-      const candidate = ready.pop();
-      if (!alive[candidate]) continue;
-      if (canRun(group[candidate], state)) {
-        next = candidate;
-        break;
-      }
-      place(candidate); // it lost its source in the meantime
+    while (free.size > 0 && !alive[free.peek()]) free.pop();
+    // Drop candidates that are no longer the first covered one of their source
+    while (candidates.size > 0) {
+      const { index, source } = candidates.peek();
+      const queue = queues.get(source) as SourceQueue;
+      if (alive[index] && firstCovered(queue, state.quantities.get(source) ?? 0) === index) break;
+      candidates.pop();
+      offer(source);
     }
+
+    let next = -1;
+    const freeFirst = free.size > 0 ? free.peek() : Infinity;
+    const coveredFirst = candidates.size > 0 ? candidates.peek().index : Infinity;
+    if (freeFirst !== Infinity || coveredFirst !== Infinity) next = Math.min(freeFirst, coveredFirst);
     if (next === -1) {
       while (!alive[firstAlive]) firstAlive++;
       next = firstAlive;
@@ -167,12 +251,10 @@ function orderInstant(group: Transaction[], state: HeldState): Transaction[] {
 
     alive[next] = false;
     ordered.push(group[next]);
-    for (const currency of applyToHeld(group[next], state)) {
-      const list = waiting.get(currency);
-      if (!list) continue;
-      waiting.delete(currency);
-      for (const index of list) if (alive[index]) place(index);
-    }
+    const source = sourceOf(group[next]);
+    if (source !== null) (queues.get(source) as SourceQueue).tree.remove(positionOf.get(next) as number);
+    for (const currency of applyToHeld(group[next], state)) offer(currency);
+    if (source !== null) offer(source);
   }
   return ordered;
 }

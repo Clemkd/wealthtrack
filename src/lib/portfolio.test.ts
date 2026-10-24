@@ -318,6 +318,32 @@ describe('computePortfolio', () => {
       }
     });
 
+    it('stays fast when many sales are listed before the purchases that cover them', () => {
+      const instant = '2024-01-01T12:00:00.000Z';
+      const n = 16000;
+      const sales = Array.from({ length: n }, () =>
+        tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 1, transaction_date: instant })
+      );
+      const buys = Array.from({ length: n }, () => tx({ currency_to: 'BTC', amount: 1, total_value: 1, transaction_date: instant }));
+      const started = performance.now();
+      const sorted = sortChronologically([...sales, ...buys]);
+      expect(performance.now() - started).toBeLessThan(1500);
+      // Each sale waits for one purchase: they alternate buy, sale, buy, sale...
+      expect(sorted.slice(0, 4).map((t) => t.transaction_type)).toEqual(['buy', 'sell', 'buy', 'sell']);
+    });
+
+    it('stays fast when sales that cannot be covered wait for many small purchases', () => {
+      const instant = '2024-01-01T12:00:00.000Z';
+      const n = 20000;
+      const sales = Array.from({ length: n }, () =>
+        tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1000, total_value: 1, transaction_date: instant })
+      );
+      const buys = Array.from({ length: n }, () => tx({ currency_to: 'BTC', amount: 0.01, total_value: 1, transaction_date: instant }));
+      const started = performance.now();
+      expect(sortChronologically([...sales, ...buys])).toHaveLength(2 * n);
+      expect(performance.now() - started).toBeLessThan(1500);
+    });
+
     it('puts a chain of swaps listed in reverse in the order it can run', () => {
       const instant = '2024-01-01T12:00:00.000Z';
       const first = tx({ currency_to: 'S0', amount: 1, total_value: 1, transaction_date: '2023-12-31T12:00:00.000Z' });
