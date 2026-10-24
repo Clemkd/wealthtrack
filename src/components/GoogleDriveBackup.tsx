@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Cloud, CloudOff, X, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { Transaction } from '../types/database';
+import AutoBackupSwitch from './AutoBackupSwitch';
 import { shouldScheduleBackup, signatureHash, transactionsSignature } from '../lib/autoBackup';
 import { saveTransactions } from '../lib/storage';
 import {
@@ -380,18 +381,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                     <p className="text-sm font-medium text-gray-700">Sauvegarde automatique</p>
                     <p className="text-xs text-gray-500">Sauvegarde après chaque modification</p>
                   </div>
-                  <button
-                    onClick={handleToggleAutoBackup}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      settings.autoBackup ? 'bg-blue-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        settings.autoBackup ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
+                  <AutoBackupSwitch enabled={settings.autoBackup} onToggle={handleToggleAutoBackup} />
                 </div>
               )}
 

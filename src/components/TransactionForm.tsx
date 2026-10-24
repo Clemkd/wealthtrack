@@ -228,6 +228,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
                   placeholder="0.00"
                 />
                 <select
+                  aria-label="Devise du prix"
                   value={priceCurrency}
                   onChange={(e) => setPriceCurrency(e.target.value as PriceCurrency)}
                   className="px-3 py-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium text-gray-700"

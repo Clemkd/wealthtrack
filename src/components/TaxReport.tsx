@@ -42,6 +42,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
             <h3 className="text-lg font-bold text-gray-900">Sélectionner l'année fiscale</h3>
           </div>
           <select
+            aria-label="Année fiscale"
             value={selectedYear}
             onChange={(e) => setChosenYear(Number(e.target.value))}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
