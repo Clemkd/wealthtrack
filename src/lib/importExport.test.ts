@@ -103,10 +103,8 @@ describe('csvToTransactions', () => {
       'nocur,buy,,,1,,100,100,,,2026-01-01T10:00:00.000Z,,c,u',
     ];
     const { transactions, skipped } = csvToTransactions([HEADER, ...rows].join('\n'));
-    // 'comma' has a decimal comma ("0,5"), which a French spreadsheet writes: it is read
-    expect(transactions.map((t) => t.id)).toEqual(['ok', 'comma']);
-    expect(transactions[1].amount).toBe(0.5);
-    expect(skipped).toBe(3);
+    expect(transactions.map((t) => t.id)).toEqual(['ok']);
+    expect(skipped).toBe(4);
   });
 
   it('normalises currencies to upper case', () => {
@@ -134,9 +132,16 @@ describe('csvToTransactions', () => {
     expect(csvToTransactions(`${HEADER}\n${row}`).skipped).toBe(1);
   });
 
-  it('turns an unreadable amount_to into null', () => {
+  it('skips a swap whose received quantity is unreadable', () => {
     const row = 'a,swap,SOL,USDC,1,abc,100,100,,,2026-01-01T10:00:00.000Z,,c,u';
-    expect(csvToTransactions(`${HEADER}\n${row}`).transactions[0].amount_to).toBeNull();
+    const result = csvToTransactions(`${HEADER}\n${row}`);
+    expect(result.transactions).toEqual([]);
+    expect(result.skipped).toBe(1);
+  });
+
+  it('does not read an English thousands separator as a decimal comma', () => {
+    const row = 'a,buy,,BTC,"1,000",,100,100,,,2026-01-01T10:00:00.000Z,,c,u';
+    expect(csvToTransactions(`${HEADER}\n${row}`).skipped).toBe(1);
   });
 
   it('reads files exported before amount_to existed', () => {
@@ -166,8 +171,9 @@ describe('readImportZip', () => {
     await expect(readImportZip(await zipOf(''))).rejects.toThrow(/aucune transaction/i);
   });
 
-  it('strips a UTF-8 BOM', async () => {
-    const zip = await zipOf('﻿' + transactionsToCsv([tx()]));
-    expect((await readImportZip(zip)).transactions).toHaveLength(1);
+  it('strips a UTF-8 BOM and keeps the ids of the export', async () => {
+    const csv = String.fromCharCode(0xfeff) + transactionsToCsv([tx({ id: 'keep-me' })]);
+    expect((await readImportZip(await zipOf(csv))).transactions.map((t) => t.id)).toEqual(['keep-me']);
+    expect(csvToTransactions(csv).transactions[0].id).toBe('keep-me');
   });
 });

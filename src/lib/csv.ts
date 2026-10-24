@@ -31,7 +31,7 @@ export function unescapeCsvField(text: string): string {
   return text;
 }
 
-function detectDelimiter(text: string): ',' | ';' {
+export function detectDelimiter(text: string): ',' | ';' {
   let inQuotes = false;
   let commas = 0;
   let semicolons = 0;

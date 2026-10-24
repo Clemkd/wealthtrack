@@ -1,5 +1,6 @@
 import { Transaction } from '../types/database';
-import { getTransactions, hasUnreadableData } from './storage';
+import { getTransactions, getUnreadableDataCopy } from './storage';
+import { signatureHash } from './autoBackup';
 import { dedupeIds, normalizeTransaction } from './transactions';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
@@ -17,6 +18,8 @@ export interface GDriveSettings {
   clientId: string;
   // Fingerprint of the transactions as of the last backup or restore
   lastBackedUpHash: string | null;
+  // Fingerprint of the set aside unreadable data that a restore has made harmless
+  coveredUnreadableHash: string | null;
 }
 
 interface DriveFile {
@@ -80,6 +83,7 @@ export function getGDriveSettings(): GDriveSettings {
     lastBackupDate: null,
     clientId: '',
     lastBackedUpHash: null,
+    coveredUnreadableHash: null,
   };
   const raw = localStorage.getItem(SETTINGS_KEY);
   if (!raw) return settings;
@@ -94,6 +98,10 @@ export function getGDriveSettings(): GDriveSettings {
       clientId: typeof stored.clientId === 'string' ? stored.clientId : settings.clientId,
       lastBackedUpHash:
         typeof stored.lastBackedUpHash === 'string' ? stored.lastBackedUpHash : settings.lastBackedUpHash,
+      coveredUnreadableHash:
+        typeof stored.coveredUnreadableHash === 'string'
+          ? stored.coveredUnreadableHash
+          : settings.coveredUnreadableHash,
     };
   } catch {
     return settings;
@@ -349,10 +357,17 @@ export class BackupConflictError extends Error {
   }
 }
 
-async function runBackup(force: boolean): Promise<string> {
-  if (!force && hasUnreadableData()) throw new BackupConflictError(UNREADABLE_DATA_MESSAGE);
+// Unreadable data is set aside while reading, so the list is read first: entries
+// that became unreadable since the last read are noticed before anything is sent.
+function hasUncoveredUnreadableData(): boolean {
+  const copy = getUnreadableDataCopy();
+  return copy !== null && signatureHash(copy) !== getGDriveSettings().coveredUnreadableHash;
+}
 
+async function runBackup(force: boolean): Promise<string> {
   const transactions = getTransactions();
+  if (!force && hasUncoveredUnreadableData()) throw new BackupConflictError(UNREADABLE_DATA_MESSAGE);
+
   const existing = await findBackupFile();
 
   // The file is only replaced when it is the one this device last wrote or restored.
@@ -386,6 +401,28 @@ export function backupToDrive(options: { force?: boolean } = {}): Promise<string
   const result = backupQueue.then(run, run);
   backupQueue = result.catch(() => undefined);
   return result;
+}
+
+// Called once a restore is really saved locally: this device is then in sync with
+// that file, what is on Drive is what is held here, and the unreadable data that was
+// set aside no longer makes the local list suspect.
+export function recordRestore(restore: { modifiedTime: string | null; transactionsHash: string }): void {
+  const copy = getUnreadableDataCopy();
+  updateGDriveSettings({
+    lastBackupDate: restore.modifiedTime,
+    lastBackedUpHash: restore.transactionsHash,
+    coveredUnreadableHash: copy === null ? null : signatureHash(copy),
+  });
+}
+
+// The fingerprint that the data is compared with to know whether a backup is due:
+// the persisted one, or the current one the first time (and then persisted, so that
+// a change made before a reload is not forgotten).
+export function loadBackedUpBaseline(currentHash: string): string {
+  const stored = getGDriveSettings().lastBackedUpHash;
+  if (stored !== null) return stored;
+  updateGDriveSettings({ lastBackedUpHash: currentHash });
+  return currentHash;
 }
 
 export interface RestoreResult {

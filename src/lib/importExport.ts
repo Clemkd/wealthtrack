@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { Transaction } from '../types/database';
 import { getTransactions } from './storage';
-import { escapeCsvField, parseCsv, unescapeCsvField } from './csv';
+import { detectDelimiter, escapeCsvField, parseCsv, unescapeCsvField } from './csv';
 import { downloadBlob } from './download';
 import { dedupeIds, normalizeTransaction } from './transactions';
 
@@ -22,6 +22,15 @@ const CSV_HEADERS = [
   'notes',
   'created_at',
   'updated_at',
+];
+
+const NUMBER_COLUMNS = [
+  'amount',
+  'amount_to',
+  'price_per_unit',
+  'total_value',
+  'price_per_unit_usd',
+  'total_value_usd',
 ];
 
 export interface ImportResult {
@@ -59,6 +68,9 @@ export function csvToTransactions(csv: string): ImportResult {
   if (!headerRow) return { transactions: [], skipped: 0 };
 
   const headers = headerRow.map((h) => h.trim());
+  // A semicolon separated file comes from a spreadsheet in a locale with decimal
+  // commas; in a comma separated one, "1,000" cannot be told from a thousand
+  const decimalComma = detectDelimiter(csv) === ';';
   const parsed: Transaction[] = [];
   let skipped = 0;
 
@@ -67,7 +79,11 @@ export function csvToTransactions(csv: string): ImportResult {
     headers.forEach((name, i) => {
       const value = fields[i] ?? '';
       // Notes are kept as typed; every other column is trimmed
-      raw[name] = unescapeCsvField(name === 'notes' ? value : value.trim());
+      const text = unescapeCsvField(name === 'notes' ? value : value.trim());
+      raw[name] =
+        decimalComma && NUMBER_COLUMNS.includes(name) && /^[+-]?\d+,\d+$/.test(text)
+          ? text.replace(',', '.')
+          : text;
     });
 
     const tx = normalizeTransaction(raw);

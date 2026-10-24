@@ -37,6 +37,14 @@ describe('computePricing', () => {
       expect(p).toMatchObject({ price_per_unit_usd: 110, total_value_usd: 330, total_value: 300 });
     });
 
+    it('compares instants, not text: an imported date with an offset is the same instant', async () => {
+      const rate = vi.fn();
+      const sameInstant = { price_per_unit: 100, price_per_unit_usd: 110, transaction_date: '2023-03-01T11:00:00+01:00' };
+      const p = await computePricing({ amount: 1, price: 100, priceCurrency: 'EUR', date, existing: sameInstant }, rate);
+      expect(rate).not.toHaveBeenCalled();
+      expect(p.price_per_unit_usd).toBe(110);
+    });
+
     it('recomputes the USD price when the date changes', async () => {
       const p = await computePricing(
         { amount: 1, price: 100, priceCurrency: 'EUR', date: new Date('2023-04-01T10:00:00.000Z'), existing },

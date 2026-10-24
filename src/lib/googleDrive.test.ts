@@ -294,12 +294,55 @@ describe('backupToDrive', () => {
     local.set('wealthtrack_transactions_corrupt', JSON.stringify(['[lost]']));
     putLocal([validTx]);
     fetchMock.mockResolvedValueOnce(found);
-    await expect(drive.backupToDrive()).rejects.toBeInstanceOf(drive.BackupConflictError);
+    await expect(drive.backupToDrive()).rejects.toThrow(/illisibles/);
     expect(fetchMock.mock.calls.some(([, o]) => o?.method === 'PATCH' || o?.method === 'POST')).toBe(false);
 
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
     await expect(drive.backupToDrive({ force: true })).resolves.toBeTruthy();
+  });
+
+  it('explains a synchronisation conflict differently from unreadable data', async () => {
+    signInWithStoredToken();
+    putLocal([validTx]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(remoteHolds([validTx]));
+    await expect(drive.backupToDrive()).rejects.toThrow(/synchronisées/);
+  });
+
+  it('notices entries that became unreadable since the last read, before sending a partial list', async () => {
+    signInWithStoredToken();
+    inSync();
+    local.set(TX_KEY, JSON.stringify([validTx, { junk: true }]));
+    fetchMock.mockResolvedValueOnce(found);
+    await expect(drive.backupToDrive()).rejects.toBeInstanceOf(drive.BackupConflictError);
+    expect(fetchMock.mock.calls.some(([, o]) => o?.method === 'PATCH' || o?.method === 'POST')).toBe(false);
+  });
+
+  it('lifts the unreadable data guard once Drive has been restored', async () => {
+    signInWithStoredToken();
+    local.set('wealthtrack_transactions_corrupt', JSON.stringify(['[lost]']));
+    putLocal([validTx]);
+    drive.recordRestore({ modifiedTime: MODIFIED, transactionsHash: 'h' });
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive()).resolves.toBeTruthy();
+
+    // A different unreadable content set aside later is not covered by that restore
+    local.set('wealthtrack_transactions_corrupt', JSON.stringify(['[lost]', '[lost later]']));
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(found);
+    await expect(drive.backupToDrive()).rejects.toThrow(/illisibles/);
+  });
+
+  it('records the restore as the reference of what is on Drive', () => {
+    drive.recordRestore({ modifiedTime: MODIFIED, transactionsHash: 'abc' });
+    expect(drive.getGDriveSettings()).toMatchObject({ lastBackupDate: MODIFIED, lastBackedUpHash: 'abc' });
+  });
+
+  it('keeps the first fingerprint as the reference so that a change before a reload is not forgotten', () => {
+    expect(drive.loadBackedUpBaseline('now')).toBe('now');
+    expect(drive.getGDriveSettings().lastBackedUpHash).toBe('now');
+    // Later loads start from the persisted reference, whatever the data is now
+    expect(drive.loadBackedUpBaseline('changed')).toBe('now');
   });
 
   it('does not count a restore as a synchronisation by itself (the local save may still fail)', async () => {
@@ -333,7 +376,7 @@ describe('backupToDrive', () => {
     signInWithStoredToken();
     driveReturns(JSON.stringify({ transactions: [validTx] }));
     const { modifiedTime } = await drive.restoreFromDrive();
-    drive.updateGDriveSettings({ lastBackupDate: modifiedTime });
+    drive.recordRestore({ modifiedTime, transactionsHash: 'h' });
     fetchMock.mockReset();
     putLocal([validTx]);
     fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
@@ -420,6 +463,7 @@ describe('settings', () => {
       lastBackupDate: null,
       clientId: '',
       lastBackedUpHash: null,
+      coveredUnreadableHash: null,
     });
   });
 
@@ -430,11 +474,12 @@ describe('settings', () => {
       lastBackupDate: null,
       clientId: 'abc',
       lastBackedUpHash: null,
+      coveredUnreadableHash: null,
     });
   });
 
   it('merges a change into what is stored now instead of a stale copy', () => {
-    drive.saveGDriveSettings({ autoBackup: false, lastBackupDate: null, clientId: '', lastBackedUpHash: null });
+    drive.saveGDriveSettings({ autoBackup: false, lastBackupDate: null, clientId: '', lastBackedUpHash: null, coveredUnreadableHash: null });
     // A backup finishing elsewhere records its date
     local.set(
       SETTINGS_KEY,

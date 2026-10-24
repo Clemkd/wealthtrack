@@ -11,6 +11,8 @@ import {
   signOut,
   isSignedIn,
   attemptBackup,
+  loadBackedUpBaseline,
+  recordRestore,
   BackupConflictError,
   backupToDrive,
   restoreFromDrive,
@@ -41,6 +43,10 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const [gisError, setGisError] = useState(false);
   // Fingerprint of the last state known to be on Drive: null until the first render
   const lastBackedUpRef = useRef<string | null>(null);
+  // Fingerprint of the data as of the last render, and a counter that re-evaluates
+  // the effect when the data changed while a backup was running
+  const latestHashRef = useRef('');
+  const [backupRound, setBackupRound] = useState(0);
 
   const [showRedirectOption, setShowRedirectOption] = useState(false);
 
@@ -76,9 +82,10 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   // load, not when only the connection or the option changes
   useEffect(() => {
     const signature = signatureHash(transactionsSignature(transactions));
+    latestHashRef.current = signature;
     if (lastBackedUpRef.current === null) {
       // After a reload, what was changed but not backed up yet is still due
-      lastBackedUpRef.current = getGDriveSettings().lastBackedUpHash ?? signature;
+      lastBackedUpRef.current = loadBackedUpBaseline(signature);
     }
     if (
       !shouldScheduleBackup({
@@ -98,6 +105,8 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
         updateGDriveSettings({ lastBackedUpHash: signature });
         setLastBackup(result.date);
         setAutoBackupError('');
+        // The data changed while the backup was running: another one is due
+        if (latestHashRef.current !== signature) setBackupRound((round) => round + 1);
       } else {
         console.error('Erreur lors de la sauvegarde automatique:', result.message);
         setAutoBackupError(result.message);
@@ -106,7 +115,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     }, AUTO_BACKUP_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [transactions, settings.autoBackup, connected]);
+  }, [transactions, settings.autoBackup, connected, backupRound]);
 
   const handleConnect = async (useRedirect = false) => {
     if (!effectiveClientId) {
@@ -193,7 +202,8 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       // what was just restored is what is on Drive: no backup is due for it
       const hash = signatureHash(transactionsSignature(restored));
       lastBackedUpRef.current = hash;
-      setSettings(updateGDriveSettings({ lastBackupDate: modifiedTime, lastBackedUpHash: hash }));
+      recordRestore({ modifiedTime, transactionsHash: hash });
+      setSettings(getGDriveSettings());
       setAutoBackupError('');
       onRestore();
       setSuccess(

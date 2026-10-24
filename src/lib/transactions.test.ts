@@ -59,7 +59,6 @@ describe('normalizeTransaction', () => {
 
   it('turns an unreadable amount_to into null', () => {
     const swap = { ...valid, transaction_type: 'swap', currency_from: 'SOL', currency_to: 'USDC' };
-    expect(normalizeTransaction({ ...swap, amount_to: 'abc' })?.amount_to).toBeNull();
     expect(normalizeTransaction({ ...swap, amount_to: '5.2' })?.amount_to).toBe(5.2);
   });
 
@@ -81,11 +80,11 @@ describe('normalizeTransaction', () => {
     expect(normalizeTransaction({ ...valid, price_per_unit: 0, total_value: 0 })).not.toBeNull();
   });
 
-  it('rejects a received quantity that is zero or negative but tolerates an unreadable one', () => {
+  it('rejects a received quantity that is zero or negative', () => {
     const swap = { ...valid, transaction_type: 'swap', currency_from: 'SOL', currency_to: 'USDC' };
     expect(normalizeTransaction({ ...swap, amount_to: 0 })).toBeNull();
     expect(normalizeTransaction({ ...swap, amount_to: -3 })).toBeNull();
-    expect(normalizeTransaction({ ...swap, amount_to: 'abc' })?.amount_to).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: '5.2' })?.amount_to).toBe(5.2);
   });
 
   it('ignores a received quantity on a buy or a sell instead of rejecting the line', () => {
@@ -120,12 +119,31 @@ describe('normalizeTransaction', () => {
     }
   );
 
-  it('reads decimal commas, as a French spreadsheet writes them, but not hex or binary', () => {
-    expect(normalizeTransaction({ ...valid, amount: '0,5' })?.amount).toBe(0.5);
+  it('reads plain decimal numbers, not hex, binary or an ambiguous comma', () => {
     expect(normalizeTransaction({ ...valid, amount: '1.5e3' })?.amount).toBe(1500);
-    expect(normalizeTransaction({ ...valid, amount: '0x10' })).toBeNull();
-    expect(normalizeTransaction({ ...valid, amount: '0b11' })).toBeNull();
-    expect(normalizeTransaction({ ...valid, amount: '1,5,2' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, amount: '+5' })?.amount).toBe(5);
+    expect(normalizeTransaction({ ...valid, amount: '5.' })?.amount).toBe(5);
+    expect(normalizeTransaction({ ...valid, amount: '.5' })?.amount).toBe(0.5);
+    for (const amount of ['0x10', '0b11', '1,000', '0,5', '1,5,2', '1 000']) {
+      expect(normalizeTransaction({ ...valid, amount })).toBeNull();
+    }
+  });
+
+  it('rejects an hour or a minute that does not exist and accepts every offset form', () => {
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-01-15T25:00:00Z' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-01-15T10:61' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-01-15T10:00:00+0100' })).not.toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_date: '2024-01-15T10:00:00-05:30' })).not.toBeNull();
+  });
+
+  it('rejects an unreadable received quantity on a swap instead of replacing it by the sent one', () => {
+    const swap = { ...valid, transaction_type: 'swap', currency_from: 'SOL', currency_to: 'USDC' };
+    expect(normalizeTransaction({ ...swap, amount_to: 'abc' })).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: '1.234,5' })).toBeNull();
+    // Absent, null or empty is a swap recorded before the field existed
+    expect(normalizeTransaction({ ...swap, amount_to: undefined })?.amount_to).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: null })?.amount_to).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: '' })?.amount_to).toBeNull();
   });
 
   it('rejects a swap between two fiat currencies', () => {

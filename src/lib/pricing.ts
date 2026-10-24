@@ -44,7 +44,7 @@ export async function computePricing(
     existing &&
     existing.price_per_unit_usd != null &&
     price === existing.price_per_unit &&
-    date.toISOString() === existing.transaction_date
+    date.getTime() === new Date(existing.transaction_date).getTime()
   ) {
     return {
       price_per_unit: price,

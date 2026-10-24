@@ -4,8 +4,9 @@ import { isNegligible, sortChronologically } from './portfolio';
 import { prepareForCalculation } from './transactions';
 
 export const EXEMPTION_THRESHOLD = 305;
-export const INCOME_TAX_RATE = 0.128;
-export const SOCIAL_CONTRIBUTIONS_RATE = 0.172;
+// In thousandths, so that rounding half cents is done on exact integers
+export const INCOME_TAX_PER_MILLE = 128;
+export const SOCIAL_CONTRIBUTIONS_PER_MILLE = 172;
 
 export interface TaxData {
   year: number;
@@ -93,8 +94,7 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
       let plusValue = 0;
       if (valeurGlobalePortefeuille > 0) {
         const fractionAcquisition = prixTotalAcquisition * (prixDeCession / valeurGlobalePortefeuille);
-        // Declared to the cent; the + 0 turns -0 into 0
-        plusValue = Math.round((prixDeCession - fractionAcquisition) * 100) / 100 + 0;
+        plusValue = prixDeCession - fractionAcquisition;
         prixTotalAcquisition = Math.max(0, prixTotalAcquisition - fractionAcquisition);
       }
 
@@ -149,7 +149,7 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
     totalSells: sellsCents / 100,
     capitalGains: gainsCents / 100,
     capitalLosses: lossesCents / 100,
-    netGain: (gainsCents - lossesCents) / 100 + 0,
+    netGain: (gainsCents - lossesCents) / 100,
     transactions: yearTransactions,
   };
 }
@@ -169,8 +169,8 @@ export function estimateTax(data: TaxData): TaxEstimate {
     return { isExempt, incomeTax: 0, socialContributions: 0, estimatedTax: 0 };
   }
   const netCents = Math.round(data.netGain * 100);
-  const incomeCents = Math.round(netCents * INCOME_TAX_RATE);
-  const socialCents = Math.round(netCents * SOCIAL_CONTRIBUTIONS_RATE);
+  const incomeCents = Math.round((netCents * INCOME_TAX_PER_MILLE) / 1000);
+  const socialCents = Math.round((netCents * SOCIAL_CONTRIBUTIONS_PER_MILLE) / 1000);
   return {
     isExempt,
     incomeTax: incomeCents / 100,

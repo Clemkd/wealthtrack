@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Transaction } from '../types/database';
 import { computePortfolio } from './portfolio';
 import { availableTaxYears, computeTax, estimateTax, resolveTaxYear, taxReportToCsv } from './tax';
@@ -343,6 +343,56 @@ describe('computeTax amounts are exact to the cent', () => {
   });
 });
 
+describe('computeTax values received and kept', () => {
+  it('values the currency received in a swap by what it was worth per unit received', () => {
+    const list = [
+      tx({ currency_to: 'BTC', amount: 1, total_value: 10000, price_per_unit: 10000, ...at('2026-01-01') }),
+      tx({ currency_to: 'ETH', amount: 1, total_value: 1000, price_per_unit: 1000, ...at('2026-01-02') }),
+      tx({ transaction_type: 'swap', currency_from: 'BTC', currency_to: 'SOL', amount: 0.5, amount_to: 50, total_value: 5000, price_per_unit: 10000, ...at('2026-01-03') }),
+      tx({ transaction_type: 'sell', currency_to: 'ETH', amount: 0.5, total_value: 600, price_per_unit: 1200, ...at('2026-01-04') }),
+    ];
+    // SOL at 5000 / 50 = 100: VGP = 0.5 BTC x 10000 + 1 ETH x 1200 + 50 SOL x 100 = 11200
+    // PV = 600 - 11000 x 600 / 11200 = 10.71
+    expect(computeTax(list, 2026).netGain).toBe(10.71);
+  });
+
+  it('never lets the acquisition cost go negative after a sale of more than was held', () => {
+    const list = [
+      tx({ amount: 1, total_value: 100, price_per_unit: 100, ...at('2026-01-01') }),
+      tx({ transaction_type: 'sell', amount: 2, total_value: 300, price_per_unit: 150, ...at('2026-01-02') }),
+      tx({ amount: 1, total_value: 50, price_per_unit: 50, ...at('2026-01-03') }),
+      tx({ transaction_type: 'sell', amount: 1, total_value: 80, price_per_unit: 80, ...at('2026-01-04') }),
+    ];
+    // First sale: PV 100, cost left 0 (not -100). Second: PTA 50, VGP 80, PV = 80 - 50 = 30
+    expect(computeTax(list, 2026).netGain).toBe(130);
+  });
+
+  it('tolerates dust relative to the largest quantity ever held, not to the current one', () => {
+    const list = [
+      tx({ currency_to: 'DOGE', amount: 1e6, total_value: 1000, price_per_unit: 0.001, ...at('2026-01-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 5e5, total_value: 500, price_per_unit: 0.001, ...at('2026-01-02') }),
+      tx({ currency_to: 'DOGE', amount: 1, total_value: 0.001, price_per_unit: 0.001, ...at('2026-01-03') }),
+      tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 500001 - 0.0007, total_value: 500, price_per_unit: 0.001, ...at('2026-01-04') }),
+      tx({ transaction_type: 'swap', currency_from: 'DOGE', currency_to: 'ETH', amount: 10, amount_to: 1, total_value: 777, price_per_unit: 77.7, ...at('2026-01-05') }),
+    ];
+    // 0.0007 DOGE is dust next to a 1 000 000 peak: nothing is held, the swap is new money
+    expect(computeTax(list, 2026).totalBuys).toBeCloseTo(1000 + 0.001 + 777, 2);
+  });
+
+  it('counts the year in local time', () => {
+    vi.stubEnv('TZ', 'Pacific/Auckland');
+    try {
+      // 23:30 UTC on 31 December is already 1 January in Auckland
+      const list = [tx({ amount: 1, total_value: 100, price_per_unit: 100, transaction_date: '2025-12-31T23:30:00.000Z' })];
+      expect(computeTax(list, 2026).totalBuys).toBe(100);
+      expect(computeTax(list, 2025).totalBuys).toBe(0);
+      expect(availableTaxYears(list)).toEqual([2026]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe('computeTax prices', () => {
   it('values holdings from total_value, like the portfolio, when price_per_unit is 0', () => {
     const list = [
@@ -405,6 +455,13 @@ describe('estimateTax', () => {
 
   it('computes each part to the cent so that the lines add up to the total', () => {
     // 20.25 x 12.8 % = 2.592 and x 17.2 % = 3.483
+    // Exact half cents round up: 6.25 x 17.2 % = 1.075
+    expect(estimateTax({ ...base, totalSells: 1000, netGain: 6.25 })).toMatchObject({
+      incomeTax: 0.8,
+      socialContributions: 1.08,
+      estimatedTax: 1.88,
+    });
+    expect(estimateTax({ ...base, totalSells: 1000, netGain: 21.25 }).socialContributions).toBe(3.66);
     expect(estimateTax({ ...base, totalSells: 1000, netGain: 20.25 })).toEqual({
       isExempt: false,
       incomeTax: 2.59,

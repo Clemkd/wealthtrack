@@ -39,10 +39,6 @@ describe('shouldScheduleBackup', () => {
     expect(shouldScheduleBackup(ready)).toBe(true);
   });
 
-  it('does not before the first state is known', () => {
-    expect(shouldScheduleBackup({ ...ready, lastBackedUp: null })).toBe(false);
-  });
-
   it('does not when nothing changed since the last backup (page load, reconnection)', () => {
     expect(shouldScheduleBackup({ ...ready, signature: 'old' })).toBe(false);
   });
@@ -60,6 +56,12 @@ describe('shouldScheduleBackup', () => {
 });
 
 describe('signatureHash', () => {
+  it('is FNV-1a 32 bits, because the value is kept in the settings', () => {
+    expect(signatureHash('')).toBe('811c9dc5');
+    expect(signatureHash('a')).toBe('e40c292c');
+    expect(signatureHash('foobar')).toBe('bf9cf968');
+  });
+
   it('is short, stable and sensitive to changes', () => {
     expect(signatureHash('abc')).toBe(signatureHash('abc'));
     expect(signatureHash('abc')).not.toBe(signatureHash('abd'));

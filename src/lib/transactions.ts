@@ -17,16 +17,17 @@ export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-// Plain decimal numbers only: a decimal comma is read as a point (French
-// spreadsheets), but 0x10 or 0b11 are not numbers.
-const DECIMAL_NUMBER = /^[+-]?(\d+([.,]\d*)?|[.,]\d+)(e[+-]?\d+)?$/i;
+// Plain decimal numbers with a point only: 0x10, 0b11 and "1,000" (a thousand or one?)
+// are not read. A decimal comma is converted by the CSV import, where the delimiter
+// tells that the file comes from a French spreadsheet.
+const DECIMAL_NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i;
 
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string') {
     const text = value.trim();
     if (!DECIMAL_NUMBER.test(text)) return null;
-    const parsed = Number(text.replace(',', '.'));
+    const parsed = Number(text);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
@@ -79,10 +80,14 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   const currencyFrom = toNullableString(r.currency_from);
   if (type === 'swap' && !currencyFrom) return null;
 
-  // The received quantity only exists on swaps. An unreadable one is ignored
-  // (legacy fallback), a zero or negative one makes the line invalid.
+  // The received quantity only exists on swaps. Absent (a swap recorded before the
+  // field existed) it falls back to the sent quantity; given but unreadable, zero or
+  // negative, the line is invalid rather than silently replaced.
   const amountTo = type === 'swap' ? toFiniteNumber(r.amount_to) : null;
   if (amountTo !== null && amountTo <= 0) return null;
+  const amountToGiven =
+    r.amount_to !== undefined && r.amount_to !== null && String(r.amount_to).trim() !== '';
+  if (type === 'swap' && amountToGiven && amountTo === null) return null;
   if (type === 'swap' && currencyFrom && isFiat(currencyFrom) && isFiat(currencyTo)) return null;
 
   // Other formats (05/01/2024) are read as month/day or day/month depending on the
