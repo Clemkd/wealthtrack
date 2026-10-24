@@ -8,7 +8,7 @@ import { shouldScheduleBackup, signatureHash, transactionsSignature } from '../l
 import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
-  handleRedirectResponse,
+  consumeRedirectResponse,
   restoreSession,
   signIn,
   signOut,
@@ -63,7 +63,13 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
   useEffect(() => {
     // The answer of a redirect sign-in is handled (and removed from the address bar)
     // whether or not the Google script manages to load
-    const restored = handleRedirectResponse() || restoreSession();
+    const outcome = consumeRedirectResponse();
+    if (outcome === 'rejected') {
+      setError(
+        "La réponse de Google n'a pas pu être vérifiée (connexion non démarrée ici, état différent ou refus) : recommencez la connexion."
+      );
+    }
+    const restored = outcome === 'accepted' || restoreSession();
     if (restored) {
       setConnected(true);
       getBackupInfo()
@@ -258,11 +264,15 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
         aria-label="Sauvegarde Google Drive"
       >
         {connected ? <Cloud aria-hidden="true" className="w-5 h-5" /> : <CloudOff aria-hidden="true" className="w-5 h-5" />}
-        <span className="hidden sm:inline">Drive</span>
+        <span className="hidden lg:inline">Drive</span>
       </button>
 
       {showPanel && (
-        <Dialog titleId="gdrive-panel-title" className="bg-white rounded-xl shadow-2xl max-w-md">
+        <Dialog
+          titleId="gdrive-panel-title"
+          onClose={() => setShowPanel(false)}
+          className="bg-white rounded-xl shadow-2xl max-w-md"
+        >
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center gap-2">
                 <Cloud aria-hidden="true" className="w-5 h-5 text-blue-600" />

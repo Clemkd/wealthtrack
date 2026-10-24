@@ -152,7 +152,36 @@ describe('handleRedirectResponse', () => {
   });
 });
 
+describe('consumeRedirectResponse', () => {
+  it('tells nothing happened, accepted, or rejected', () => {
+    expect(drive.consumeRedirectResponse()).toBe('none');
+
+    session.set(STATE_KEY, 'expected');
+    win.location.hash = '#access_token=t&expires_in=3600&state=expected';
+    expect(drive.consumeRedirectResponse()).toBe('accepted');
+
+    win.location.hash = '#access_token=t&expires_in=3600&state=wrong';
+    expect(drive.consumeRedirectResponse()).toBe('rejected');
+
+    session.set(STATE_KEY, 'expected');
+    win.location.hash = '#error=access_denied&state=expected';
+    expect(drive.consumeRedirectResponse()).toBe('rejected');
+  });
+});
+
 describe('signIn with redirect', () => {
+  it('refuses to leave for Google when the state cannot be kept for the return', async () => {
+    win.google = { accounts: { oauth2: { initTokenClient: () => ({ requestAccessToken: () => {} }) } } };
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException('denied', 'SecurityError');
+      },
+      removeItem: () => {},
+    });
+    await expect(drive.signIn('client-id', true)).rejects.toThrow(/fenêtre/);
+  });
+
   it('issues a random state, remembers it and sends it to Google', () => {
     let config: { state?: string; ux_mode?: string } = {};
     win.google = {

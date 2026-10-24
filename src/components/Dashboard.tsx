@@ -94,13 +94,13 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+      <header className="bg-white border-b border-gray-200 [@media(min-height:600px)]:sticky [@media(min-height:600px)]:top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
+          <div className="flex flex-wrap justify-between items-center gap-3 py-4">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">Portfolio Crypto</h1>
             </div>
-            <div className="flex gap-2 sm:gap-3 shrink-0">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               <GoogleDriveBackup transactions={transactions} onRestore={loadTransactions} />
               <button
                 onClick={handleExport}
@@ -109,7 +109,7 @@ export default function Dashboard() {
                 aria-label="Exporter les données"
               >
                 <Download aria-hidden="true" className="w-5 h-5" />
-                <span className="hidden sm:inline">Exporter</span>
+                <span className="hidden lg:inline">Exporter</span>
               </button>
               <button
                 onClick={handleImportClick}
@@ -118,7 +118,7 @@ export default function Dashboard() {
                 aria-label="Importer des données"
               >
                 <Upload aria-hidden="true" className="w-5 h-5" />
-                <span className="hidden sm:inline">Importer</span>
+                <span className="hidden lg:inline">Importer</span>
               </button>
               <input
                 ref={fileInputRef}
@@ -133,7 +133,7 @@ export default function Dashboard() {
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-colors shadow-sm"
               >
                 <Plus aria-hidden="true" className="w-5 h-5" />
-                <span className="hidden sm:inline">Nouvelle transaction</span>
+                <span className="hidden lg:inline">Nouvelle transaction</span>
               </button>
             </div>
           </div>

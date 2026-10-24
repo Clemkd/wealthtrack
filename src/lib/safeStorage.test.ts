@@ -76,6 +76,25 @@ describe('safeStorage', () => {
     expect(safeLocal.hasFailed()).toBe(true);
   });
 
+  it('tells which values live in memory only', () => {
+    const { api } = working();
+    let full = true;
+    vi.stubGlobal('localStorage', {
+      ...api,
+      setItem: (k: string, v: string) => {
+        if (full) throw new DOMException('full', 'QuotaExceededError');
+        api.setItem(k, v);
+      },
+    });
+    safeLocal.setItem('k', 'v');
+    expect(safeLocal.isInMemory('k')).toBe(true);
+    expect(safeLocal.hasUnsaved()).toBe(true);
+    full = false;
+    safeLocal.setItem('k', 'v2');
+    expect(safeLocal.isInMemory('k')).toBe(false);
+    expect(safeLocal.hasUnsaved()).toBe(false);
+  });
+
   it('hides a value it could not remove', () => {
     const { data, api } = working();
     data.set('k', 'old');

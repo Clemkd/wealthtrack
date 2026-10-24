@@ -14,6 +14,7 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
   return (
     <Dialog
       titleId="error-modal-title"
+      onClose={onClose}
       className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 max-w-lg"
     >
         <div className="flex items-center justify-between p-4 border-b border-gray-700">

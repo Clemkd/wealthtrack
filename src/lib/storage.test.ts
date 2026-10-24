@@ -257,3 +257,64 @@ describe('when the browser storage does not work', () => {
     expect(isStorageUnavailable()).toBe(false);
   });
 });
+
+describe('storage that fills up', () => {
+  // A storage that refuses a write once the stored text would exceed a size
+  const limited = (limit: number) => {
+    const data = new Map<string, string>();
+    const size = (except?: string) =>
+      [...data.entries()].reduce((sum, [k, v]) => sum + (k === except ? 0 : k.length + v.length), 0);
+    return {
+      data,
+      api: {
+        getItem: (k: string) => data.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          if (size(k) + k.length + v.length > limit) throw new DOMException('full', 'QuotaExceededError');
+          data.set(k, v);
+        },
+        removeItem: (k: string) => void data.delete(k),
+      },
+    };
+  };
+
+  it('never rewrites the list while the copy of what is dropped only exists in memory', () => {
+    const { data, api } = limited(900);
+    vi.stubGlobal('localStorage', api);
+    const raw = JSON.stringify([tx({ id: undefined }), { note: 'x'.repeat(200), amount: 'abc' }]);
+    data.set(KEY, raw);
+    getTransactions(); // the copy does not fit: it stays in memory
+    getTransactions(); // read again, as the dashboard does
+    expect(data.get(KEY)).toBe(raw);
+    expect(data.has(CORRUPT_KEY)).toBe(false);
+  });
+
+  it('stops saying that nothing is kept once the writes work again', () => {
+    let refuse = true;
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (refuse) throw new DOMException('full', 'QuotaExceededError');
+        store.set(k, v);
+      },
+      removeItem: (k: string) => void store.delete(k),
+    });
+    const entry = {
+      transaction_type: 'buy' as const,
+      currency_from: null,
+      currency_to: 'BTC',
+      amount: 1,
+      price_per_unit: 1,
+      total_value: 1,
+      price_per_unit_usd: null,
+      total_value_usd: null,
+      transaction_date: '2026-01-01T10:00:00.000Z',
+      notes: '',
+    };
+    addTransaction(entry);
+    expect(isStorageUnavailable()).toBe(true);
+    refuse = false;
+    addTransaction(entry);
+    expect(isStorageUnavailable()).toBe(false);
+    expect(getTransactions()).toHaveLength(2);
+  });
+});

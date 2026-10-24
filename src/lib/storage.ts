@@ -22,15 +22,17 @@ function readUnreadableCopies(): string[] {
 // Returns true when this raw content is safely set aside (written now, or already there).
 function backUpUnreadableData(raw: string): boolean {
   const copies = readUnreadableCopies();
-  if (copies.includes(raw)) return true;
+  // A copy that only lives in memory is not safe: the page can close
+  if (copies.includes(raw)) return !safeLocal.isInMemory(CORRUPT_KEY);
   // False when the copy could not really be saved (storage full or refused)
   return safeLocal.setItem(CORRUPT_KEY, JSON.stringify([...copies, raw]));
 }
 
-// Whether the browser storage does not work, so that what is entered is not kept
-// beyond this page. Checked again after every failed write.
+// Whether what is entered would be lost with the page: something could not be saved
+// and is held in memory, or the storage refuses a write now. Not sticky: it goes back
+// to false as soon as the writes work again.
 export function isStorageUnavailable(): boolean {
-  return safeLocal.hasFailed() || !safeLocal.probe();
+  return safeLocal.hasUnsaved() || !safeLocal.probe();
 }
 
 export function hasUnreadableData(): boolean {

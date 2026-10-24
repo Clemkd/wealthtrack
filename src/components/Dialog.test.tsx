@@ -59,6 +59,15 @@ describe('Dialog', () => {
     expect(html).toContain('overflow-y-auto');
     expect(html).toContain('max-w-md');
   });
+
+  it('can receive the focus, so that it can take it when it opens', () => {
+    const html = renderToStaticMarkup(
+      <Dialog titleId="t">
+        <h2 id="t">Title</h2>
+      </Dialog>
+    );
+    expect(html).toContain('tabindex="-1"');
+  });
 });
 
 describe('Notice', () => {
@@ -104,8 +113,8 @@ describe('transaction type buttons', () => {
 describe('edit and delete buttons say which transaction they concern', () => {
   it('includes the type, the currency and the date', () => {
     const html = renderToStaticMarkup(<TransactionList transactions={[buy, sale]} onUpdate={() => {}} />);
-    expect(html).toMatch(/aria-label="Modifier : Achat BTC du [^"]+"/);
-    expect(html).toMatch(/aria-label="Supprimer : Vente BTC du [^"]+"/);
+    expect(html).toMatch(/aria-label="Modifier : Achat de [^"]*BTC le [^"]+ à [^"]+"/);
+    expect(html).toMatch(/aria-label="Supprimer : Vente de [^"]*BTC le [^"]+ à [^"]+"/);
   });
 });
 
@@ -140,6 +149,19 @@ describe('text colours keep a readable contrast on white', () => {
     ]) {
       expect(html).not.toMatch(tooPale);
     }
+  });
+});
+
+describe('header on a narrow or short window', () => {
+  it('wraps instead of overflowing, shows the labels only when there is room, and sticks only on tall windows', () => {
+    const html = renderToStaticMarkup(<Dashboard />);
+    expect(html).toMatch(/<h1[^>]*>Portfolio Crypto<\/h1>/);
+    expect(html).toMatch(/<div class="[^"]*\bflex-wrap\b[^"]*">\s*<div class="min-w-0/);
+    for (const label of ['Exporter', 'Importer', 'Nouvelle transaction']) {
+      expect(html).toContain(`<span class="hidden lg:inline">${label}</span>`);
+    }
+    expect(html).toContain('[@media(min-height:600px)]:sticky');
+    expect(html).not.toMatch(/ sticky top-0/);
   });
 });
 

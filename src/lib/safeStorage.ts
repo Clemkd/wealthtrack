@@ -50,6 +50,16 @@ function createSafeStorage(area: () => Storage) {
       return failed;
     },
 
+    // Whether this value lives in memory only (it could not be saved)
+    isInMemory(key: string): boolean {
+      return inMemory.has(key);
+    },
+
+    // Whether something is held in memory only, i.e. would be lost with the page
+    hasUnsaved(): boolean {
+      return inMemory.size > 0;
+    },
+
     // Whether the storage can be written now
     probe(): boolean {
       try {

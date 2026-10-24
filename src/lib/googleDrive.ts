@@ -162,35 +162,49 @@ export function isSignedIn(): boolean {
 // anyone could make the app sign in with their own token through a crafted link.
 function beginRedirectFlow(): string {
   const state = crypto.randomUUID();
-  safeSession.setItem(STATE_KEY, state);
+  // Without a place to keep the state until the return, the answer of Google would be
+  // rejected and the page reloaded for nothing
+  if (!safeSession.setItem(STATE_KEY, state)) {
+    throw new Error(
+      'Le navigateur refuse de conserver la connexion en cours : utilisez la connexion par fenêtre.'
+    );
+  }
   return state;
 }
 
-export function handleRedirectResponse(): boolean {
+export type RedirectOutcome = 'none' | 'accepted' | 'rejected';
+
+// Handles what Google sent back in the address bar: nothing, a token that is kept, or an
+// answer that is refused (no sign-in was started, wrong state, or an error from Google).
+export function consumeRedirectResponse(): RedirectOutcome {
   const hash = window.location.hash;
-  if (!hash) return false;
+  if (!hash) return 'none';
 
   const params = new URLSearchParams(hash.substring(1));
   const token = params.get('access_token');
   // A refusal (#error=...) is cleaned up like an answer carrying a token
-  if (!token && !params.get('error')) return false;
+  if (!token && !params.get('error')) return 'none';
 
   const expectedState = safeSession.getItem(STATE_KEY);
   safeSession.removeItem(STATE_KEY);
   // The token never stays in the address bar, whether it is accepted or not
   window.history.replaceState(null, '', window.location.pathname + window.location.search);
 
-  if (!token) return false;
+  if (!token) return 'rejected';
 
   const expiresIn = parseInt(params.get('expires_in') ?? '', 10);
   if (!expectedState || params.get('state') !== expectedState || !Number.isFinite(expiresIn)) {
-    return false;
+    return 'rejected';
   }
 
   accessToken = token;
   tokenExpiresAt = Date.now() + expiresIn * 1000;
   persistToken();
-  return true;
+  return 'accepted';
+}
+
+export function handleRedirectResponse(): boolean {
+  return consumeRedirectResponse() === 'accepted';
 }
 
 function getRedirectUri(): string {

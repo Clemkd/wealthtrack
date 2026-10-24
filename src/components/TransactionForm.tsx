@@ -65,14 +65,6 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
     };
   }, []);
 
-  useEffect(() => {
-    const closeOnEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onCancel]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -112,7 +104,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
   };
 
   return (
-    <Dialog titleId="transaction-form-title" className="bg-white rounded-2xl shadow-2xl max-w-2xl">
+    <Dialog titleId="transaction-form-title" onClose={onCancel} className="bg-white rounded-2xl shadow-2xl max-w-2xl">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center rounded-t-2xl">
           <h2 id="transaction-form-title" className="text-2xl font-bold text-gray-900">
             {isEditing ? 'Modifier la transaction' : 'Nouvelle transaction'}

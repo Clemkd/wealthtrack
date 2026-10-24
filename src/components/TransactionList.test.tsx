@@ -24,6 +24,15 @@ const render = (transactions: Transaction[]) =>
   renderToStaticMarkup(<TransactionList transactions={transactions} onUpdate={() => {}} />);
 
 describe('TransactionList', () => {
+  it('tells two purchases of the same day apart by their quantity and time', () => {
+    const morning = { ...base, id: 'm', amount: 2, transaction_date: '2025-01-01T09:00:00.000Z' };
+    const afternoon = { ...base, id: 'p', amount: 5, transaction_date: '2025-01-01T15:00:00.000Z' };
+    const labels = [...render([morning, afternoon]).matchAll(/aria-label="(Supprimer : [^"]+)"/g)].map((m) => m[1]);
+    // Each transaction is listed twice (cards on mobile, table on desktop): two distinct names
+    expect(new Set(labels).size).toBe(2);
+    expect(labels.some((l) => /2[^"]*BTC/.test(l))).toBe(true);
+  });
+
   it('shows the notes of a transaction', () => {
     expect(render([{ ...base, notes: 'note visible' }])).toContain('note visible');
   });

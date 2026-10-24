@@ -34,10 +34,14 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
   };
 
   // Names a transaction for the buttons of its row, so that they are told apart
-  const describe = (tx: Transaction) =>
-    `${getTypeLabel(tx.transaction_type)} ${
-      tx.transaction_type === 'swap' ? `${tx.currency_from} vers ${tx.currency_to}` : tx.currency_to
-    } du ${new Date(tx.transaction_date).toLocaleDateString('fr-FR')}`;
+  const describe = (tx: Transaction) => {
+    const when = new Date(tx.transaction_date);
+    const what =
+      tx.transaction_type === 'swap'
+        ? `${formatQuantity(tx.amount)} ${tx.currency_from} vers ${tx.currency_to}`
+        : `${formatQuantity(tx.amount)} ${tx.currency_to}`;
+    return `${getTypeLabel(tx.transaction_type)} de ${what} le ${when.toLocaleDateString('fr-FR')} à ${when.toLocaleTimeString('fr-FR')}`;
+  };
 
   const getTypeIcon = (type: string) => {
     switch (type) {
