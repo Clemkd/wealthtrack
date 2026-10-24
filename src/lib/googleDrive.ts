@@ -1,5 +1,6 @@
 import { Transaction } from '../types/database';
 import { getTransactions } from './storage';
+import { normalizeTransaction } from './transactions';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const DRIVE_API_BASE = 'https://www.googleapis.com';
@@ -8,6 +9,7 @@ const BACKUP_FILENAME = 'wealthtrack_backup.json';
 const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 const SETTINGS_KEY = 'wealthtrack_gdrive_settings';
 const TOKEN_KEY = 'wealthtrack_gdrive_token';
+const STATE_KEY = 'wealthtrack_gdrive_oauth_state';
 
 export interface GDriveSettings {
   autoBackup: boolean;
@@ -113,23 +115,36 @@ export function isSignedIn(): boolean {
   return accessToken !== null && Date.now() < tokenExpiresAt;
 }
 
+// A random value sent with the sign-in request and checked on return: without it,
+// anyone could make the app sign in with their own token through a crafted link.
+function beginRedirectFlow(): string {
+  const state = crypto.randomUUID();
+  sessionStorage.setItem(STATE_KEY, state);
+  return state;
+}
+
 export function handleRedirectResponse(): boolean {
   const hash = window.location.hash;
   if (!hash) return false;
 
   const params = new URLSearchParams(hash.substring(1));
   const token = params.get('access_token');
-  const expiresIn = params.get('expires_in');
+  if (!token) return false;
 
-  if (token && expiresIn) {
-    accessToken = token;
-    tokenExpiresAt = Date.now() + parseInt(expiresIn, 10) * 1000;
-    persistToken();
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    return true;
+  const expectedState = sessionStorage.getItem(STATE_KEY);
+  sessionStorage.removeItem(STATE_KEY);
+  // The token never stays in the address bar, whether it is accepted or not
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  const expiresIn = parseInt(params.get('expires_in') ?? '', 10);
+  if (!expectedState || params.get('state') !== expectedState || !Number.isFinite(expiresIn)) {
+    return false;
   }
 
-  return false;
+  accessToken = token;
+  tokenExpiresAt = Date.now() + expiresIn * 1000;
+  persistToken();
+  return true;
 }
 
 function getRedirectUri(): string {
@@ -162,6 +177,7 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
     if (useRedirect) {
       config.ux_mode = 'redirect';
       config.redirect_uri = getRedirectUri();
+      config.state = beginRedirectFlow();
     } else {
       config.error_callback = (error) => {
         reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
@@ -289,7 +305,12 @@ export async function backupToDrive(): Promise<string> {
   return now;
 }
 
-export async function restoreFromDrive(): Promise<Transaction[]> {
+export interface RestoreResult {
+  transactions: Transaction[];
+  skipped: number;
+}
+
+export async function restoreFromDrive(): Promise<RestoreResult> {
   const file = await findBackupFile();
   if (!file) throw new Error('Aucune sauvegarde trouvée sur Google Drive');
 
@@ -302,11 +323,37 @@ export async function restoreFromDrive(): Promise<Transaction[]> {
     throw new Error('Le fichier de sauvegarde est corrompu');
   }
 
-  if (!data.transactions || !Array.isArray(data.transactions)) {
+  if (!data || !Array.isArray(data.transactions)) {
     throw new Error('Le fichier de sauvegarde est invalide');
   }
 
-  return data.transactions as Transaction[];
+  const transactions = data.transactions
+    .map(normalizeTransaction)
+    .filter((tx): tx is Transaction => tx !== null);
+  if (data.transactions.length > 0 && transactions.length === 0) {
+    throw new Error(
+      'Aucune transaction valide dans la sauvegarde : la restauration est annulée, vos données actuelles sont conservées.'
+    );
+  }
+  return { transactions, skipped: data.transactions.length - transactions.length };
+}
+
+export type BackupAttempt =
+  | { ok: true; date: string }
+  | { ok: false; message: string; connected: boolean };
+
+// Backup that reports instead of throwing, with the connection state after the
+// attempt (an expired session must not keep showing as connected).
+export async function attemptBackup(): Promise<BackupAttempt> {
+  try {
+    return { ok: true, date: await backupToDrive() };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : 'Erreur lors de la sauvegarde',
+      connected: isSignedIn(),
+    };
+  }
 }
 
 export async function getBackupInfo(): Promise<{ modifiedTime: string } | null> {

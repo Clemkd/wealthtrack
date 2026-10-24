@@ -9,6 +9,7 @@ import {
   signIn,
   signOut,
   isSignedIn,
+  attemptBackup,
   backupToDrive,
   restoreFromDrive,
   getBackupInfo,
@@ -30,6 +31,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [autoBackupError, setAutoBackupError] = useState('');
   const [success, setSuccess] = useState('');
   const [lastBackup, setLastBackup] = useState<string | null>(settings.lastBackupDate);
   const [clientIdInput, setClientIdInput] = useState(settings.clientId);
@@ -80,11 +82,14 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     }
 
     backupTimerRef.current = setTimeout(async () => {
-      try {
-        const date = await backupToDrive();
-        setLastBackup(date);
-      } catch (e) {
-        console.error('Erreur lors de la sauvegarde automatique:', e);
+      const result = await attemptBackup();
+      if (result.ok) {
+        setLastBackup(result.date);
+        setAutoBackupError('');
+      } else {
+        console.error('Erreur lors de la sauvegarde automatique:', result.message);
+        setAutoBackupError(result.message);
+        setConnected(result.connected);
       }
     }, AUTO_BACKUP_DEBOUNCE_MS);
 
@@ -156,10 +161,13 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     setError('');
     setSuccess('');
     try {
-      const restoredTransactions = await restoreFromDrive();
-      saveTransactions(restoredTransactions);
+      const { transactions: restored, skipped } = await restoreFromDrive();
+      saveTransactions(restored);
       onRestore();
-      setSuccess(`${restoredTransactions.length} transactions restaurées`);
+      setSuccess(
+        `${restored.length} transactions restaurées` +
+          (skipped > 0 ? ` (${skipped} entrée(s) invalide(s) ignorée(s))` : '')
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de la restauration');
     } finally {
@@ -185,11 +193,18 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       <button
         onClick={() => setShowPanel(true)}
         className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border font-semibold rounded-lg transition-colors ${
-          connected
-            ? 'border-green-300 text-green-700 hover:bg-green-50'
-            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+          autoBackupError
+            ? 'border-red-300 text-red-700 hover:bg-red-50'
+            : connected
+              ? 'border-green-300 text-green-700 hover:bg-green-50'
+              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
         }`}
-        title="Sauvegarde Google Drive"
+        title={
+          autoBackupError
+            ? `Sauvegarde automatique en échec : ${autoBackupError}`
+            : 'Sauvegarde Google Drive'
+        }
+        aria-label="Sauvegarde Google Drive"
       >
         {connected ? <Cloud className="w-5 h-5" /> : <CloudOff className="w-5 h-5" />}
         <span className="hidden sm:inline">Drive</span>
@@ -197,14 +212,22 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
 
       {showPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gdrive-panel-title"
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4"
+          >
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center gap-2">
                 <Cloud className="w-5 h-5 text-blue-600" />
-                <h2 className="text-lg font-semibold text-gray-900">Sauvegarde Google Drive</h2>
+                <h2 id="gdrive-panel-title" className="text-lg font-semibold text-gray-900">
+                  Sauvegarde Google Drive
+                </h2>
               </div>
               <button
                 onClick={() => setShowPanel(false)}
+                aria-label="Fermer"
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -212,6 +235,12 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
             </div>
 
             <div className="p-4 space-y-4">
+              {autoBackupError && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  Sauvegarde automatique en échec : {autoBackupError}
+                </div>
+              )}
               {error && (
                 <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
                   <AlertTriangle className="w-4 h-4 shrink-0" />

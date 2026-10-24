@@ -24,6 +24,7 @@ interface GoogleOAuth2 {
     error_callback?: (error: { type: string; message?: string }) => void;
     ux_mode?: 'popup' | 'redirect';
     redirect_uri?: string;
+    state?: string;
   }) => GoogleTokenClient;
   revoke: (token: string, callback: () => void) => void;
 }
