@@ -12,14 +12,20 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-lg mx-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="error-modal-title"
+        className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-lg mx-4"
+      >
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <div className="flex items-center gap-2 text-red-400">
             <AlertTriangle className="w-5 h-5" />
-            <h2 className="text-lg font-semibold">Erreur</h2>
+            <h2 id="error-modal-title" className="text-lg font-semibold">Erreur</h2>
           </div>
           <button
             onClick={onClose}
+            aria-label="Fermer"
             className="text-gray-400 hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
