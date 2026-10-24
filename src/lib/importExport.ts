@@ -3,7 +3,7 @@ import { Transaction } from '../types/database';
 import { getTransactions } from './storage';
 import { escapeCsvField, parseCsv, unescapeCsvField } from './csv';
 import { downloadBlob } from './download';
-import { normalizeTransaction } from './transactions';
+import { dedupeIds, normalizeTransaction } from './transactions';
 
 const CSV_FILENAME = 'transactions.csv';
 
@@ -23,9 +23,6 @@ const CSV_HEADERS = [
   'created_at',
   'updated_at',
 ];
-
-// Free text columns, protected against spreadsheet formulas on export.
-const TEXT_COLUMNS = ['currency_from', 'currency_to', 'notes'];
 
 export interface ImportResult {
   transactions: Transaction[];
@@ -62,15 +59,15 @@ export function csvToTransactions(csv: string): ImportResult {
   if (!headerRow) return { transactions: [], skipped: 0 };
 
   const headers = headerRow.map((h) => h.trim());
-  const transactions: Transaction[] = [];
-  const seenIds = new Set<string>();
+  const parsed: Transaction[] = [];
   let skipped = 0;
 
   for (const fields of dataRows) {
     const raw: Record<string, string> = {};
     headers.forEach((name, i) => {
       const value = fields[i] ?? '';
-      raw[name] = TEXT_COLUMNS.includes(name) ? unescapeCsvField(value) : value.trim();
+      // Notes are kept as typed; every other column is trimmed
+      raw[name] = unescapeCsvField(name === 'notes' ? value : value.trim());
     });
 
     const tx = normalizeTransaction(raw);
@@ -78,12 +75,10 @@ export function csvToTransactions(csv: string): ImportResult {
       skipped++;
       continue;
     }
-    if (seenIds.has(tx.id)) tx.id = crypto.randomUUID();
-    seenIds.add(tx.id);
-    transactions.push(tx);
+    parsed.push(tx);
   }
 
-  return { transactions, skipped };
+  return { transactions: dedupeIds(parsed).transactions, skipped };
 }
 
 export async function exportToZip(): Promise<void> {

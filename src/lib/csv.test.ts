@@ -22,7 +22,7 @@ describe('escapeCsvField', () => {
   );
 
   it('round-trips through unescapeCsvField', () => {
-    for (const text of ['=HYPERLINK("x","y")', '-note', '@a', 'plain', "'quoted"]) {
+    for (const text of ['=HYPERLINK("x","y")', '-note', '@a', 'plain', "'quoted", "'=abc", "'-x", "'"]) {
       const [[field]] = parseCsv(escapeCsvField(text));
       expect(unescapeCsvField(field)).toBe(text);
     }

@@ -1,16 +1,31 @@
 import { Transaction } from '../types/database';
-import { normalizeTransaction } from './transactions';
+import { dedupeIds, newId, normalizeTransaction } from './transactions';
 
 const STORAGE_KEY = 'wealthtrack_transactions';
 const CORRUPT_KEY = 'wealthtrack_transactions_corrupt';
 
 function generateId(): string {
-  return crypto.randomUUID();
+  return newId();
 }
 
-// Keeps what could not be read so it is never silently lost by the next save.
+// Keeps what could not be read so it is never silently lost by the next save. The
+// first copy is kept: later reads must not overwrite it.
 function backUpUnreadableData(raw: string): void {
-  localStorage.setItem(CORRUPT_KEY, raw);
+  try {
+    if (localStorage.getItem(CORRUPT_KEY) === null) {
+      localStorage.setItem(CORRUPT_KEY, raw);
+    }
+  } catch {
+    // Storage full: reading must still work
+  }
+}
+
+export function hasUnreadableData(): boolean {
+  return localStorage.getItem(CORRUPT_KEY) !== null;
+}
+
+export function clearUnreadableData(): void {
+  localStorage.removeItem(CORRUPT_KEY);
 }
 
 export function getTransactions(): Transaction[] {
@@ -30,11 +45,25 @@ export function getTransactions(): Transaction[] {
     return [];
   }
 
-  const transactions = parsed
+  const normalized = parsed
     .map(normalizeTransaction)
     .filter((tx): tx is Transaction => tx !== null);
-  if (transactions.length !== parsed.length) {
+  if (normalized.length !== parsed.length) {
     backUpUnreadableData(raw);
+  }
+
+  // Ids that were missing or duplicated are fixed once and persisted, so that edit
+  // and delete find the transaction that is displayed.
+  const { transactions, changed } = dedupeIds(normalized);
+  const hadMissingId = parsed.some(
+    (el) => typeof el === 'object' && el !== null && !(el as { id?: unknown }).id
+  );
+  if (changed || hadMissingId) {
+    try {
+      saveTransactions(transactions);
+    } catch {
+      // Storage full: the list is still returned
+    }
   }
   return transactions;
 }

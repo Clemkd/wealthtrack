@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTransaction, validateTransactionInput } from './transactions';
+import { dedupeIds, normalizeTransaction, validateTransactionInput } from './transactions';
+import { Transaction } from '../types/database';
+import { afterEach, vi } from 'vitest';
 
 const valid = {
   id: 'a',
@@ -67,6 +69,43 @@ describe('normalizeTransaction', () => {
     expect(tx?.created_at).toBeTruthy();
   });
 
+  it('rejects zero or negative quantities and negative values (exchange exports write sales as negative)', () => {
+    expect(normalizeTransaction({ ...valid, amount: 0 })).toBeNull();
+    expect(normalizeTransaction({ ...valid, amount: -0.5 })).toBeNull();
+    expect(normalizeTransaction({ ...valid, total_value: -7500 })).toBeNull();
+    expect(normalizeTransaction({ ...valid, price_per_unit: -1 })).toBeNull();
+  });
+
+  it('accepts a free transaction (airdrop) with a zero price', () => {
+    expect(normalizeTransaction({ ...valid, price_per_unit: 0, total_value: 0 })).not.toBeNull();
+  });
+
+  it('rejects a received quantity that is zero or negative but tolerates an unreadable one', () => {
+    const swap = { ...valid, transaction_type: 'swap', currency_from: 'SOL', currency_to: 'USDC' };
+    expect(normalizeTransaction({ ...swap, amount_to: 0 })).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: -3 })).toBeNull();
+    expect(normalizeTransaction({ ...swap, amount_to: 'abc' })?.amount_to).toBeNull();
+  });
+
+  it('rejects a swap without a source currency', () => {
+    expect(normalizeTransaction({ ...valid, transaction_type: 'swap', currency_from: '' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, transaction_type: 'swap', currency_from: null })).toBeNull();
+  });
+
+  describe('without crypto.randomUUID (insecure context, old browsers)', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('still reads a transaction that has an id', () => {
+      vi.stubGlobal('crypto', {});
+      expect(normalizeTransaction(valid)?.id).toBe('a');
+    });
+
+    it('still generates an id when it is missing', () => {
+      vi.stubGlobal('crypto', {});
+      expect(normalizeTransaction({ ...valid, id: undefined })?.id).toBeTruthy();
+    });
+  });
+
   it('keeps a currency that does not look like a ticker so it stays editable', () => {
     expect(normalizeTransaction({ ...valid, currency_to: 'USDT CTION TYPE' })?.currency_to).toBe(
       'USDT CTION TYPE'
@@ -130,5 +169,22 @@ describe('validateTransactionInput', () => {
     it('requires a source currency', () => {
       expect(validateTransactionInput({ ...swap, currencyFrom: '' })).toMatch(/source/i);
     });
+  });
+});
+
+describe('dedupeIds', () => {
+  const tx = (id: string): Transaction => normalizeTransaction({ ...valid, id }) as Transaction;
+
+  it('keeps unique ids and reports no change', () => {
+    const result = dedupeIds([tx('a'), tx('b')]);
+    expect(result.transactions.map((x) => x.id)).toEqual(['a', 'b']);
+    expect(result.changed).toBe(false);
+  });
+
+  it('gives a duplicated id a new identity and keeps the first one', () => {
+    const result = dedupeIds([tx('a'), tx('a'), tx('a')]);
+    expect(result.transactions[0].id).toBe('a');
+    expect(new Set(result.transactions.map((x) => x.id)).size).toBe(3);
+    expect(result.changed).toBe(true);
   });
 });

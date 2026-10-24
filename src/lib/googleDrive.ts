@@ -1,6 +1,6 @@
 import { Transaction } from '../types/database';
 import { getTransactions } from './storage';
-import { normalizeTransaction } from './transactions';
+import { dedupeIds, normalizeTransaction } from './transactions';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const DRIVE_API_BASE = 'https://www.googleapis.com';
@@ -327,9 +327,9 @@ export async function restoreFromDrive(): Promise<RestoreResult> {
     throw new Error('Le fichier de sauvegarde est invalide');
   }
 
-  const transactions = data.transactions
-    .map(normalizeTransaction)
-    .filter((tx): tx is Transaction => tx !== null);
+  const transactions = dedupeIds(
+    data.transactions.map(normalizeTransaction).filter((tx): tx is Transaction => tx !== null)
+  ).transactions;
   if (data.transactions.length > 0 && transactions.length === 0) {
     throw new Error(
       'Aucune transaction valide dans la sauvegarde : la restauration est annulée, vos données actuelles sont conservées.'

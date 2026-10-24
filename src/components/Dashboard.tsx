@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getTransactions, saveTransactions } from '../lib/storage';
+import { clearUnreadableData, getTransactions, hasUnreadableData, saveTransactions } from '../lib/storage';
 import { exportToZip, readImportZip } from '../lib/importExport';
 import { Transaction } from '../types/database';
 import TransactionForm from './TransactionForm';
@@ -18,6 +18,7 @@ export default function Dashboard() {
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [importError, setImportError] = useState('');
+  const [unreadable, setUnreadable] = useState(() => hasUnreadableData());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function Dashboard() {
         new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
     );
     setTransactions(data);
+    setUnreadable(hasUnreadableData());
     setLoading(false);
   };
 
@@ -151,6 +153,27 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {unreadable && (
+          <div
+            role="status"
+            className="mb-4 flex items-start justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm"
+          >
+            <p>
+              Des données illisibles ont été mises de côté sans être supprimées : leur copie brute est
+              conservée dans le navigateur (clé wealthtrack_transactions_corrupt). Vérifiez vos
+              transactions et exportez-les.
+            </p>
+            <button
+              onClick={() => {
+                clearUnreadableData();
+                setUnreadable(false);
+              }}
+              className="shrink-0 font-semibold underline"
+            >
+              Compris
+            </button>
+          </div>
+        )}
         {importError && (
           <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
             {importError}

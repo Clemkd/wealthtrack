@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 import { Transaction } from '../types/database';
 import { csvToTransactions, readImportZip, transactionsToCsv } from './importExport';
+import { parseCsv } from './csv';
 
 const tx = (overrides: Partial<Transaction> = {}): Transaction => ({
   id: 'a',
@@ -45,10 +46,24 @@ describe('CSV round trip', () => {
   });
 
   it('protects formulas on export and restores them on import', () => {
-    const risky = tx({ notes: '=HYPERLINK("http://x","y")' });
+    const risky = tx({ notes: '=HYPERLINK("http://x","y")', currency_from: '=cmd', transaction_type: 'swap', amount_to: 2 });
     const csv = transactionsToCsv([risky]);
-    expect(csv).not.toMatch(/,=HYPERLINK/);
-    expect(csvToTransactions(csv).transactions[0].notes).toBe(risky.notes);
+
+    const [header, row] = parseCsv(csv);
+    const cell = (name: string) => row[header.indexOf(name)];
+    expect(cell('notes')).toBe(`'${risky.notes}`);
+    expect(cell('currency_from')).toBe("'=cmd");
+
+    const [back] = csvToTransactions(csv).transactions;
+    expect(back.notes).toBe(risky.notes);
+    expect(back.currency_from).toBe('=CMD');
+  });
+
+  it('survives notes that look like protected formulas and ids starting with a dash', () => {
+    const odd = tx({ id: '-x', notes: "'=abc" });
+    const [back] = csvToTransactions(transactionsToCsv([odd])).transactions;
+    expect(back.id).toBe('-x');
+    expect(back.notes).toBe("'=abc");
   });
 
   it('writes negative numbers untouched', () => {
@@ -91,6 +106,18 @@ describe('csvToTransactions', () => {
     const row = 'same,buy,,BTC,1,,100,100,,,2026-01-01T10:00:00.000Z,,c,u';
     const { transactions } = csvToTransactions(`${HEADER}\n${row}\n${row}`);
     expect(new Set(transactions.map((t) => t.id)).size).toBe(2);
+  });
+
+  it('skips a swap that has no source currency', () => {
+    const row = 'a,swap,,USDC,1,5,100,100,,,2026-01-01T10:00:00.000Z,,c,u';
+    const result = csvToTransactions(`${HEADER}\n${row}`);
+    expect(result.transactions).toEqual([]);
+    expect(result.skipped).toBe(1);
+  });
+
+  it('skips negative quantities instead of importing them', () => {
+    const row = 'a,sell,,BTC,-0.5,,15000,-7500,,,2026-01-01T10:00:00.000Z,,c,u';
+    expect(csvToTransactions(`${HEADER}\n${row}`).skipped).toBe(1);
   });
 
   it('turns an unreadable amount_to into null', () => {

@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './Dashboard';
 import ErrorModal from './ErrorModal';
 
+const store = new Map<string, string>();
+
 beforeEach(() => {
-  const store = new Map<string, string>();
+  store.clear();
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => void store.set(k, v),
@@ -28,6 +30,19 @@ describe('Dashboard navigation', () => {
     expect(html).toContain('aria-label="Nouvelle transaction"');
     expect(html).toContain('aria-label="Exporter les données"');
     expect(html).toContain('aria-label="Importer des données"');
+  });
+});
+
+describe('Dashboard unreadable data notice', () => {
+  it('stays quiet when everything could be read', () => {
+    expect(renderToStaticMarkup(<Dashboard />)).not.toContain('illisibles');
+  });
+
+  it('tells the user when entries were set aside', () => {
+    store.set('wealthtrack_transactions_corrupt', '[null]');
+    const html = renderToStaticMarkup(<Dashboard />);
+    expect(html).toContain('illisibles');
+    expect(html).toContain('wealthtrack_transactions_corrupt');
   });
 });
 

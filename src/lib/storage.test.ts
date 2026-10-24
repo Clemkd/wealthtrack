@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { addTransaction, deleteTransaction, getTransactions, updateTransaction } from './storage';
+import {
+  addTransaction,
+  clearUnreadableData,
+  deleteTransaction,
+  getTransactions,
+  hasUnreadableData,
+  updateTransaction,
+} from './storage';
 
 const KEY = 'wealthtrack_transactions';
 const CORRUPT_KEY = 'wealthtrack_transactions_corrupt';
@@ -66,6 +73,58 @@ describe('getTransactions', () => {
     store.set(KEY, JSON.stringify([tx()]));
     getTransactions();
     expect(store.has(CORRUPT_KEY)).toBe(false);
+  });
+});
+
+describe('unreadable data safety', () => {
+  it('never overwrites a copy that was already set aside', () => {
+    store.set(CORRUPT_KEY, 'first copy');
+    store.set(KEY, '{broken');
+    getTransactions();
+    expect(store.get(CORRUPT_KEY)).toBe('first copy');
+  });
+
+  it('still reads when the backup cannot be written (quota)', () => {
+    store.set(KEY, JSON.stringify([tx(), null]));
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string) => {
+        if (k === CORRUPT_KEY) throw new Error('QuotaExceededError');
+        store.set(k, 'x');
+      },
+      removeItem: (k: string) => void store.delete(k),
+    });
+    expect(getTransactions().map((t) => t.id)).toEqual(['a']);
+  });
+
+  it('tells whether something was set aside and can acknowledge it', () => {
+    expect(hasUnreadableData()).toBe(false);
+    store.set(KEY, '{broken');
+    getTransactions();
+    expect(hasUnreadableData()).toBe(true);
+    clearUnreadableData();
+    expect(hasUnreadableData()).toBe(false);
+  });
+
+  it('keeps ids stable between reads when they were missing', () => {
+    store.set(KEY, JSON.stringify([tx({ id: undefined })]));
+    const first = getTransactions()[0].id;
+    expect(first).toBeTruthy();
+    expect(getTransactions()[0].id).toBe(first);
+  });
+
+  it('separates duplicated ids once and for all', () => {
+    store.set(KEY, JSON.stringify([tx(), tx()]));
+    const first = getTransactions().map((t) => t.id);
+    expect(new Set(first).size).toBe(2);
+    expect(getTransactions().map((t) => t.id)).toEqual(first);
+  });
+
+  it('deleting one of two former duplicates keeps the other', () => {
+    store.set(KEY, JSON.stringify([tx(), tx()]));
+    const [a, b] = getTransactions();
+    deleteTransaction(b.id);
+    expect(getTransactions().map((t) => t.id)).toEqual([a.id]);
   });
 });
 

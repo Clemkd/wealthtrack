@@ -9,6 +9,14 @@ export function isFiat(currency: string): boolean {
   return FIAT_CURRENCIES.includes(currency.trim().toUpperCase());
 }
 
+// crypto.randomUUID is missing in insecure contexts (plain http) and old browsers
+export function newId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -40,30 +48,57 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   const pricePerUnit = toFiniteNumber(r.price_per_unit);
   const totalValue = toFiniteNumber(r.total_value);
   if (amount === null || pricePerUnit === null || totalValue === null) return null;
+  // Exchange exports often write sales with negative quantities: not importable as is
+  if (amount <= 0 || pricePerUnit < 0 || totalValue < 0) return null;
+
+  const currencyFrom = toNullableString(r.currency_from);
+  if (type === 'swap' && !currencyFrom) return null;
+
+  // An unreadable received quantity is ignored (legacy fallback), a zero or negative one is not valid
+  const amountTo = toFiniteNumber(r.amount_to);
+  if (amountTo !== null && amountTo <= 0) return null;
 
   const date = typeof r.transaction_date === 'string' ? r.transaction_date.trim() : '';
   if (!date || Number.isNaN(new Date(date).getTime())) return null;
 
   const now = new Date().toISOString();
-  const text = (value: unknown, fallback: string) =>
-    typeof value === 'string' && value !== '' ? value : fallback;
+  const text = (value: unknown, fallback: () => string) =>
+    typeof value === 'string' && value !== '' ? value : fallback();
 
   return {
-    id: text(r.id, crypto.randomUUID()),
+    id: text(r.id, newId),
     transaction_type: type as TransactionType,
-    currency_from: toNullableString(r.currency_from),
+    currency_from: currencyFrom,
     currency_to: currencyTo,
     amount,
-    amount_to: toFiniteNumber(r.amount_to),
+    amount_to: amountTo,
     price_per_unit: pricePerUnit,
     total_value: totalValue,
     price_per_unit_usd: toFiniteNumber(r.price_per_unit_usd),
     total_value_usd: toFiniteNumber(r.total_value_usd),
     transaction_date: date,
     notes: typeof r.notes === 'string' ? r.notes : '',
-    created_at: text(r.created_at, now),
-    updated_at: text(r.updated_at, now),
+    created_at: text(r.created_at, () => now),
+    updated_at: text(r.updated_at, () => now),
   };
+}
+
+// Two transactions sharing an id would be deleted or edited together: the later
+// ones get a new identity.
+export function dedupeIds(transactions: Transaction[]): { transactions: Transaction[]; changed: boolean } {
+  const seen = new Set<string>();
+  let changed = false;
+  const result = transactions.map((tx) => {
+    if (!seen.has(tx.id)) {
+      seen.add(tx.id);
+      return tx;
+    }
+    changed = true;
+    const fresh = { ...tx, id: newId() };
+    seen.add(fresh.id);
+    return fresh;
+  });
+  return { transactions: result, changed };
 }
 
 export interface TransactionInput {
