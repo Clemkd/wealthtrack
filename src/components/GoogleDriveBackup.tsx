@@ -212,7 +212,7 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
     setSuccess('');
     try {
       const { transactions: restored, skipped, modifiedTime } = await restoreFromDrive();
-      saveTransactions(restored);
+      const saved = saveTransactions(restored);
       // Only now that it is saved locally is this device in sync with that file, and
       // what was just restored is what is on Drive: no backup is due for it
       const hash = signatureHash(transactionsSignature(restored));
@@ -223,7 +223,10 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
       onRestore();
       setSuccess(
         `${restored.length} transactions restaurées` +
-          (skipped > 0 ? ` (${skipped} entrée(s) invalide(s) ignorée(s))` : '')
+          (skipped > 0 ? ` (${skipped} entrée(s) invalide(s) ignorée(s))` : '') +
+          (saved
+            ? ''
+            : " — mais elles n'ont pas pu être enregistrées sur cet appareil (stockage plein ou refusé) : elles seront perdues à la fermeture de la page.")
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de la restauration');

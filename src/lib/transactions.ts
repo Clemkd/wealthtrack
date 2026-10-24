@@ -63,7 +63,10 @@ function toNullableString(value: unknown): string | null {
 
 // Validates and cleans a transaction coming from an untrusted source (CSV import,
 // Google Drive backup, localStorage). Returns null when it cannot be trusted.
-export function normalizeTransaction(raw: unknown): Transaction | null {
+//
+// A transaction without an id gets `fallbackId` when given, a random one otherwise: the
+// caller passes a stable one when the same data may be read again before it is saved.
+export function normalizeTransaction(raw: unknown, fallbackId?: string): Transaction | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
 
@@ -113,7 +116,7 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
     typeof value === 'string' && value !== '' ? value : fallback();
 
   return {
-    id: typeof r.id === 'number' && Number.isFinite(r.id) ? String(r.id) : text(r.id, newId),
+    id: typeof r.id === 'number' && Number.isFinite(r.id) ? String(r.id) : text(r.id, () => fallbackId ?? newId()),
     transaction_type: type as TransactionType,
     currency_from: currencyFrom,
     currency_to: currencyTo,
@@ -141,7 +144,10 @@ export function dedupeIds(transactions: Transaction[]): { transactions: Transact
       return tx;
     }
     changed = true;
-    const fresh = { ...tx, id: newId() };
+    // Derived from the id, not random: reading the same data twice gives the same ids
+    let n = 1;
+    while (seen.has(`${tx.id}~${n}`)) n++;
+    const fresh = { ...tx, id: `${tx.id}~${n}` };
     seen.add(fresh.id);
     return fresh;
   });

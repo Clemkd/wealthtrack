@@ -8,7 +8,11 @@ import {
   getTransactions,
   getUnreadableDataCopy,
   hasUnreadableData,
+  isListDurable,
   isStorageUnavailable,
+  resetStorageState,
+  saveTransactions,
+  unreadableCopyStatus,
   updateTransaction,
 } from './storage';
 
@@ -20,6 +24,7 @@ const copies = (): string[] => JSON.parse(store.get(CORRUPT_KEY) ?? '[]');
 
 beforeEach(() => {
   resetSafeStorage();
+  resetStorageState();
   store.clear();
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
@@ -316,5 +321,127 @@ describe('storage that fills up', () => {
     addTransaction(entry);
     expect(isStorageUnavailable()).toBe(false);
     expect(getTransactions()).toHaveLength(2);
+  });
+});
+
+describe('degraded storage never costs the user data that is on disk', () => {
+  const limited = (limit: number, refused: string[] = []) => {
+    const data = new Map<string, string>();
+    const size = (except?: string) =>
+      [...data.entries()].reduce((sum, [k, v]) => sum + (k === except ? 0 : k.length + v.length), 0);
+    return {
+      data,
+      api: {
+        getItem: (k: string) => data.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          if (refused.includes(k) || size(k) + k.length + v.length > limit) {
+            throw new DOMException('full', 'QuotaExceededError');
+          }
+          data.set(k, v);
+        },
+        removeItem: (k: string) => void data.delete(k),
+      },
+    };
+  };
+  const entry = {
+    transaction_type: 'buy' as const,
+    currency_from: null,
+    currency_to: 'DOGE',
+    amount: 1,
+    price_per_unit: 1,
+    total_value: 1,
+    price_per_unit_usd: null,
+    total_value_usd: null,
+    transaction_date: '2026-01-01T10:00:00.000Z',
+    notes: '',
+  };
+
+  it('keeps the stored list, rejected lines included, while their copy is not durable', () => {
+    const { data, api } = limited(1500);
+    vi.stubGlobal('localStorage', api);
+    const raw = JSON.stringify([tx({ id: 'v0' }), tx({ id: 'v1' }), tx({ id: 'v2' }), { junk: 'x'.repeat(100), amount: 'abc' }]);
+    data.set(KEY, raw);
+    getTransactions();
+    expect(unreadableCopyStatus()).toBe('unsaved');
+
+    // The cleaned list would fit now that the junk line is gone: it must still not replace the raw one
+    const added = addTransaction(entry);
+    expect(data.get(KEY)).toBe(raw);
+    expect(getTransactions().map((t) => t.id)).toContain(added.id);
+    expect(isListDurable()).toBe(false);
+  });
+
+  it('writes the list again once the copy of the rejected lines can be saved', () => {
+    const { data, api } = limited(1500);
+    vi.stubGlobal('localStorage', api);
+    const raw = JSON.stringify([tx({ id: 'v0' }), tx({ id: 'v1' }), tx({ id: 'v2' }), { junk: 'x'.repeat(100), amount: 'abc' }]);
+    data.set(KEY, raw);
+    getTransactions();
+    addTransaction(entry);
+    // Room is made (the user frees space elsewhere)
+    vi.stubGlobal('localStorage', limited(100000).api);
+    const { data: roomy, api: roomyApi } = limited(100000);
+    roomy.set(KEY, raw);
+    vi.stubGlobal('localStorage', roomyApi);
+    resetSafeStorage(); // new session on a storage with room: nothing is pending any more
+    resetStorageState();
+    getTransactions();
+    expect(unreadableCopyStatus()).toBe('saved');
+    expect(saveTransactions([tx({ id: 'only' })] as never)).toBe(true);
+    expect(JSON.parse(roomy.get(KEY) as string)).toHaveLength(1);
+  });
+
+  it('keeps the ids of a list that cannot be rewritten the same between reads', () => {
+    const { api } = limited(100000, [CORRUPT_KEY]);
+    vi.stubGlobal('localStorage', api);
+    store.clear();
+    api.setItem(KEY, JSON.stringify([tx({ id: undefined, currency_to: 'BTC' }), tx({ id: undefined, currency_to: 'ETH' }), { junk: 1 }]));
+    const first = getTransactions().map((t) => t.id);
+    expect(getTransactions().map((t) => t.id)).toEqual(first);
+    deleteTransaction(first[0]);
+    expect(getTransactions().map((t) => t.currency_to)).toEqual(['ETH']);
+  });
+
+  it('does not overwrite a list that could not be read', () => {
+    const original = JSON.stringify([tx({ id: 'a' }), tx({ id: 'b' })]);
+    store.set(KEY, original);
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => {
+        if (k === KEY) throw new Error('read refused');
+        return store.get(k) ?? null;
+      },
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    });
+    expect(getTransactions()).toEqual([]);
+    expect(isStorageUnavailable()).toBe(true);
+    const added = addTransaction(entry);
+    expect(store.get(KEY)).toBe(original);
+    expect(getTransactions().map((t) => t.id)).toEqual([added.id]);
+  });
+
+  it('does not overwrite the copies it could not read either', () => {
+    const copies = JSON.stringify(['older copy']);
+    store.set(CORRUPT_KEY, copies);
+    store.set(KEY, '{broken');
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => {
+        if (k === CORRUPT_KEY) throw new Error('read refused');
+        return store.get(k) ?? null;
+      },
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    });
+    getTransactions();
+    expect(store.get(CORRUPT_KEY)).toBe(copies);
+  });
+
+  it('tells whether the list was really saved', () => {
+    store.clear();
+    expect(saveTransactions([tx()] as never)).toBe(true);
+    expect(isListDurable()).toBe(true);
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new Error('full'); }, removeItem: () => {} });
+    expect(saveTransactions([tx()] as never)).toBe(false);
+    expect(isListDurable()).toBe(false);
   });
 });

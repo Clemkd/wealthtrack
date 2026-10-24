@@ -95,6 +95,32 @@ describe('safeStorage', () => {
     expect(safeLocal.hasUnsaved()).toBe(false);
   });
 
+  it('tells a failed read from a missing value', () => {
+    const { data, api } = working();
+    data.set('k', 'v');
+    vi.stubGlobal('localStorage', api);
+    expect(safeLocal.read('k')).toEqual({ value: 'v', failed: false });
+    expect(safeLocal.read('missing')).toEqual({ value: null, failed: false });
+    vi.stubGlobal('localStorage', {
+      ...api,
+      getItem: () => {
+        throw new Error('denied');
+      },
+    });
+    expect(safeLocal.read('k')).toEqual({ value: null, failed: true });
+  });
+
+  it('can keep a value in memory only, without touching the stored one', () => {
+    const { data, api } = working();
+    data.set('k', 'stored');
+    vi.stubGlobal('localStorage', api);
+    safeLocal.setItemInMemory('k', 'session');
+    expect(data.get('k')).toBe('stored');
+    expect(safeLocal.getItem('k')).toBe('session');
+    expect(safeLocal.isInMemory('k')).toBe(true);
+    expect(safeLocal.hasUnsaved()).toBe(true);
+  });
+
   it('hides a value it could not remove', () => {
     const { data, api } = working();
     data.set('k', 'old');

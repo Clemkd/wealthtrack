@@ -1,5 +1,5 @@
 import { Transaction } from '../types/database';
-import { getTransactions, getUnreadableDataCopy } from './storage';
+import { getTransactions, getUnreadableDataCopy, isListDurable } from './storage';
 import { signatureHash } from './autoBackup';
 import { safeLocal, safeSession } from './safeStorage';
 import { dedupeIds, normalizeTransaction } from './transactions';
@@ -109,8 +109,14 @@ export function getGDriveSettings(): GDriveSettings {
   }
 }
 
+// The synchronisation reference describes the list held on this device. While that
+// list only lives in this session, the reference does too: stored, it would say after
+// a reload that the old list on disk is in sync with Drive, and the next backup would
+// overwrite the newer remote file with it.
 export function saveGDriveSettings(settings: GDriveSettings): void {
-  safeLocal.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  const text = JSON.stringify(settings);
+  if (isListDurable()) safeLocal.setItem(SETTINGS_KEY, text);
+  else safeLocal.setItemInMemory(SETTINGS_KEY, text);
 }
 
 // Applies a change on top of what is stored now, not on a copy that may predate a
@@ -474,7 +480,7 @@ async function runRestore(): Promise<RestoreResult> {
   }
 
   const transactions = dedupeIds(
-    data.transactions.map(normalizeTransaction).filter((tx): tx is Transaction => tx !== null)
+    data.transactions.map((t) => normalizeTransaction(t)).filter((tx): tx is Transaction => tx !== null)
   ).transactions;
   if (data.transactions.length > 0 && transactions.length === 0) {
     throw new Error(

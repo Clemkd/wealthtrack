@@ -6,6 +6,7 @@ import {
   hasUnreadableData,
   isStorageUnavailable,
   saveTransactions,
+  unreadableCopyStatus,
 } from '../lib/storage';
 import { downloadBlob } from '../lib/download';
 import { exportToZip, readImportZip } from '../lib/importExport';
@@ -38,12 +39,14 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [importError, setImportError] = useState('');
   const [unreadable, setUnreadable] = useState(() => hasUnreadableData());
+  const [copyUnsaved, setCopyUnsaved] = useState(() => unreadableCopyStatus() === 'unsaved');
   const [storageUnavailable, setStorageUnavailable] = useState(() => isStorageUnavailable());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadTransactions = () => {
     setTransactions(loadSortedTransactions());
     setUnreadable(hasUnreadableData());
+    setCopyUnsaved(unreadableCopyStatus() === 'unsaved');
     setStorageUnavailable(isStorageUnavailable());
   };
 
@@ -176,9 +179,9 @@ export default function Dashboard() {
             className="mb-4 flex items-start justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm"
           >
             <p>
-              Des données illisibles ont été écartées de la liste. Leur copie brute est conservée
-              dans le navigateur : téléchargez-la avant de la supprimer, elle ne sera plus
-              récupérable ensuite.
+              {copyUnsaved
+                ? "Des données illisibles ont été écartées de la liste, et leur copie brute n'a pas pu être enregistrée dans le navigateur (stockage plein ou refusé). Téléchargez-la maintenant : elle sera perdue à la fermeture de la page."
+                : 'Des données illisibles ont été écartées de la liste. Leur copie brute est conservée dans le navigateur : téléchargez-la avant de la supprimer, elle ne sera plus récupérable ensuite.'}
             </p>
             <div className="shrink-0 flex flex-col items-end gap-1">
               <button
@@ -202,7 +205,7 @@ export default function Dashboard() {
                 }}
                 className="font-semibold underline"
               >
-                Compris, supprimer la copie
+                {copyUnsaved ? 'Compris, abandonner la copie' : 'Compris, supprimer la copie'}
               </button>
             </div>
           </div>

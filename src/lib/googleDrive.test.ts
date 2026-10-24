@@ -613,3 +613,58 @@ describe('when the browser storage does not work', () => {
     expect(drive.handleRedirectResponse()).toBe(false);
   });
 });
+
+describe('when the list could not be saved on this device', () => {
+  const found = { ok: true, json: async () => ({ files: [{ id: 'f1', name: 'b', modifiedTime: '2026-02-02T00:00:00Z' }] }) };
+  const remoteHolds = (transactions: unknown[]) => ({
+    ok: true,
+    text: async () => JSON.stringify({ transactions }),
+  });
+  const refuseList = () =>
+    vi.stubGlobal('localStorage', {
+      ...storage(local),
+      setItem: (k: string, v: string) => {
+        if (k === TX_KEY) throw new DOMException('full', 'QuotaExceededError');
+        local.set(k, v);
+      },
+    });
+
+  it('does not make a restore count as a synchronisation after a reload', async () => {
+    signInWithStoredToken();
+    local.set(SETTINGS_KEY, JSON.stringify({ autoBackup: false, lastBackupDate: 'old', clientId: '' }));
+    putOld();
+    refuseList();
+    driveReturns(JSON.stringify({ transactions: [validTx, { ...validTx, id: 'b' }] }));
+    const restored = await drive.restoreFromDrive();
+    const storage_ = await import('./storage');
+    expect(storage_.saveTransactions(restored.transactions)).toBe(false);
+    drive.recordRestore({ modifiedTime: restored.modifiedTime, transactionsHash: 'h' });
+
+    // This session sees the restore as done ...
+    expect(drive.getGDriveSettings().lastBackupDate).toBe(restored.modifiedTime);
+    // ... but what is stored still says the last synchronisation was the old one
+    expect(JSON.parse(local.get(SETTINGS_KEY) as string).lastBackupDate).toBe('old');
+
+    // After a reload the old local list must not overwrite Drive
+    vi.resetModules();
+    session.set(TOKEN_KEY, JSON.stringify({ accessToken: 'tok', tokenExpiresAt: Date.now() + 3_600_000 }));
+    drive = await import('./googleDrive');
+    expect(drive.restoreSession()).toBe(true);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(remoteHolds([validTx, validTx, validTx]));
+    await expect(drive.backupToDrive()).rejects.toBeInstanceOf(drive.BackupConflictError);
+  });
+
+  it('keeps the backup reference of the session while the list is not saved, and persists it once it is', async () => {
+    signInWithStoredToken();
+    putOld();
+    refuseList();
+    const storage_ = await import('./storage');
+    storage_.saveTransactions([validTx as never]);
+    drive.updateGDriveSettings({ lastBackedUpHash: 'session' });
+    expect(drive.getGDriveSettings().lastBackedUpHash).toBe('session');
+    expect(local.get(SETTINGS_KEY)).toBeUndefined();
+  });
+
+  const putOld = () => local.set(TX_KEY, JSON.stringify([validTx]));
+});

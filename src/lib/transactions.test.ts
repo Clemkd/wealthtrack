@@ -62,6 +62,11 @@ describe('normalizeTransaction', () => {
     expect(normalizeTransaction({ ...swap, amount_to: '5.2' })?.amount_to).toBe(5.2);
   });
 
+  it('uses the fallback id it is given for a transaction without one', () => {
+    expect(normalizeTransaction({ ...valid, id: undefined }, 'legacy-1')?.id).toBe('legacy-1');
+    expect(normalizeTransaction({ ...valid, id: 'mine' }, 'legacy-1')?.id).toBe('mine');
+  });
+
   it('fills a missing id, notes and timestamps', () => {
     const tx = normalizeTransaction({ ...valid, id: undefined, notes: undefined, created_at: undefined });
     expect(tx?.id).toBeTruthy();
@@ -281,6 +286,13 @@ describe('dedupeIds', () => {
     const result = dedupeIds([tx('a'), tx('b')]);
     expect(result.transactions.map((x) => x.id)).toEqual(['a', 'b']);
     expect(result.changed).toBe(false);
+  });
+
+  it('gives the same new identities every time, so that two reads of the same data agree', () => {
+    const first = dedupeIds([tx('a'), tx('a'), tx('a'), tx('a~1')]).transactions.map((x) => x.id);
+    const second = dedupeIds([tx('a'), tx('a'), tx('a'), tx('a~1')]).transactions.map((x) => x.id);
+    expect(second).toEqual(first);
+    expect(new Set(first).size).toBe(4);
   });
 
   it('gives a duplicated id a new identity and keeps the first one', () => {

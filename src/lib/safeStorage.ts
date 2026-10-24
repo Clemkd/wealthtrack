@@ -18,6 +18,25 @@ function createSafeStorage(area: () => Storage) {
       }
     },
 
+    // Like getItem, but a refused read is told apart from a missing value: the caller
+    // must not take "could not read" for "nothing there" and write over what is stored
+    read(key: string): { value: string | null; failed: boolean } {
+      if (inMemory.has(key)) return { value: memory.get(key) ?? null, failed: false };
+      try {
+        return { value: area().getItem(key), failed: false };
+      } catch {
+        failed = true;
+        return { value: null, failed: true };
+      }
+    },
+
+    // Holds a value for this session only and leaves the stored one untouched, for when
+    // writing it would destroy something that cannot be preserved elsewhere
+    setItemInMemory(key: string, value: string): void {
+      memory.set(key, value);
+      inMemory.add(key);
+    },
+
     // Returns whether the value was really saved
     setItem(key: string, value: string): boolean {
       try {

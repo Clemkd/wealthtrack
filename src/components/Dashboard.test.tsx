@@ -2,10 +2,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './Dashboard';
 import ErrorModal from './ErrorModal';
+import { resetStorageState } from '../lib/storage';
+import { resetSafeStorage } from '../lib/safeStorage';
 
 const store = new Map<string, string>();
 
 beforeEach(() => {
+  resetSafeStorage();
+  resetStorageState();
   store.clear();
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
@@ -67,6 +71,22 @@ describe('Dashboard unreadable data notice', () => {
   it('tells the user at the first render when the stored list is unreadable', () => {
     store.set('wealthtrack_transactions', '{broken');
     expect(renderToStaticMarkup(<Dashboard />)).toContain('illisibles');
+  });
+
+  it('does not claim the copy is kept when it could not be saved', () => {
+    const raw = JSON.stringify([{ junk: true }]);
+    store.set('wealthtrack_transactions', raw);
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (k === 'wealthtrack_transactions_corrupt') throw new DOMException('full', 'QuotaExceededError');
+        store.set(k, v);
+      },
+      removeItem: (k: string) => void store.delete(k),
+    });
+    const html = renderToStaticMarkup(<Dashboard />);
+    expect(html).toContain('pas pu être enregistrée');
+    expect(html).not.toContain('Leur copie brute est conservée');
   });
 
   it('tells the user when entries were set aside', () => {

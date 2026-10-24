@@ -374,7 +374,7 @@ describe('computeTax transactions at the same instant', () => {
         total_value: total, transaction_date: date,
       });
       const list = [raw('2024-06-01', 'buy', 10000), raw('2025-01-01', 'sell', 10500)]
-        .map(normalizeTransaction) as Transaction[];
+        .map((t) => normalizeTransaction(t)) as Transaction[];
       expect(computeTax(list, 2025).totalSells).toBe(10500);
       expect(computeTax(list, 2024).totalSells).toBe(0);
     } finally {
