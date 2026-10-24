@@ -1,4 +1,5 @@
 import { Transaction, getReceivedAmount } from '../types/database';
+import { treatFiatSwapAsSale } from './transactions';
 
 export interface Holding {
   currency: string;
@@ -21,9 +22,18 @@ export interface Portfolio {
   timeline: PortfolioPoint[];
 }
 
+// Quantities below this are floating point residue, not a holding
+export const QUANTITY_EPSILON = 1e-12;
+
+// At the same instant a purchase comes before a swap, which comes before a sale
+// (the other order would sell what is not held yet). Remaining ties keep the entry order.
+const TYPE_RANK = { buy: 0, swap: 1, sell: 2 } as const;
+
 export function sortChronologically(transactions: Transaction[]): Transaction[] {
   return [...transactions].sort(
-    (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+    (a, b) =>
+      new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime() ||
+      TYPE_RANK[a.transaction_type] - TYPE_RANK[b.transaction_type]
   );
 }
 
@@ -50,7 +60,7 @@ export function computePortfolio(transactions: Transaction[]): Portfolio {
     const removedCost = holding.totalInvested * fraction;
     holding.quantity -= amount;
     holding.totalInvested -= removedCost;
-    if (holding.quantity <= 1e-12) {
+    if (holding.quantity <= QUANTITY_EPSILON) {
       holding.quantity = 0;
       holding.totalInvested = 0;
     }
@@ -65,7 +75,7 @@ export function computePortfolio(transactions: Transaction[]): Portfolio {
 
   const timeline: PortfolioPoint[] = [];
 
-  sortChronologically(transactions).forEach((tx) => {
+  sortChronologically(transactions.map(treatFiatSwapAsSale)).forEach((tx) => {
     const holding = getHolding(tx.currency_to);
 
     if (tx.transaction_type === 'buy') {

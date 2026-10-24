@@ -1,6 +1,7 @@
 import { Transaction, getReceivedAmount } from '../types/database';
 import { escapeCsvField, quoteCsvField } from './csv';
-import { sortChronologically } from './portfolio';
+import { QUANTITY_EPSILON, sortChronologically } from './portfolio';
+import { treatFiatSwapAsSale } from './transactions';
 
 export const EXEMPTION_THRESHOLD = 305;
 export const FLAT_TAX_RATE = 0.3;
@@ -38,7 +39,12 @@ export function resolveTaxYear(
 
 // French method (article 150 VH bis CGI):
 // PV = prix de cession - (prix total d'acquisition × prix de cession / valeur globale du portefeuille)
-export function computeTax(transactions: Transaction[], year: number): TaxData {
+export function computeTax(rawTransactions: Transaction[], year: number): TaxData {
+  const transactions = rawTransactions.map(treatFiatSwapAsSale);
+  const held = (currency: string | null) => {
+    const quantity = currency ? holdings.get(currency) || 0 : 0;
+    return quantity > QUANTITY_EPSILON ? quantity : 0;
+  };
   let prixTotalAcquisition = 0;
   const holdings = new Map<string, number>();
   const lastKnownPrices = new Map<string, number>();
@@ -57,7 +63,7 @@ export function computeTax(transactions: Transaction[], year: number): TaxData {
 
       let valeurGlobalePortefeuille = 0;
       holdings.forEach((qty, currency) => {
-        if (qty > 0) {
+        if (qty > QUANTITY_EPSILON) {
           valeurGlobalePortefeuille += qty * (lastKnownPrices.get(currency) || 0);
         }
       });
@@ -69,12 +75,11 @@ export function computeTax(transactions: Transaction[], year: number): TaxData {
         prixTotalAcquisition = Math.max(0, prixTotalAcquisition - fractionAcquisition);
       }
 
-      const currentQty = holdings.get(tx.currency_to) || 0;
-      holdings.set(tx.currency_to, Math.max(0, currentQty - tx.amount));
+      holdings.set(tx.currency_to, Math.max(0, held(tx.currency_to) - tx.amount));
       gainByTx.set(tx.id, plusValue);
     } else if (tx.transaction_type === 'swap') {
       // Crypto to crypto: not a taxable event, only the composition changes
-      const sourceQty = tx.currency_from ? holdings.get(tx.currency_from) || 0 : 0;
+      const sourceQty = held(tx.currency_from);
       if (sourceQty <= 0) {
         prixTotalAcquisition += tx.total_value;
         acquisitionSwaps.add(tx.id);

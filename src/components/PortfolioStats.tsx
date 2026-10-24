@@ -20,7 +20,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
             <div className="p-2 bg-blue-100 rounded-lg">
               <Wallet className="w-5 h-5 text-blue-600" />
             </div>
-            <h3 className="text-xs sm:text-sm font-medium text-gray-600">Total investi</h3>
+            <h3 className="text-xs sm:text-sm font-medium text-gray-600">Total investi (positions détenues)</h3>
           </div>
           <p className="text-lg sm:text-2xl font-bold text-gray-900">
             {totalInvested.toLocaleString('fr-FR', {

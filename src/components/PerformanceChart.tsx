@@ -80,9 +80,9 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-2">Investissement cumulé</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-2">Capital investi dans les positions</h3>
         <p className="text-sm text-gray-600">
-          Évolution de votre investissement total au fil du temps
+          Coût d'acquisition des positions encore détenues : les achats l'augmentent, les ventes le réduisent
         </p>
       </div>
 
@@ -166,7 +166,7 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-blue-50 rounded-lg p-3 sm:p-4">
-          <p className="text-sm text-blue-600 font-medium mb-1">Investissement total</p>
+          <p className="text-sm text-blue-600 font-medium mb-1">Capital investi actuel</p>
           <p className="text-xl sm:text-2xl font-bold text-blue-900">
             {formatValue(chartData[chartData.length - 1]?.cumulativeValue || 0)}
           </p>

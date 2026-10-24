@@ -101,6 +101,21 @@ export function dedupeIds(transactions: Transaction[]): { transactions: Transact
   return { transactions: result, changed };
 }
 
+// A swap towards a fiat currency (possible in data entered before the form refused
+// it, or imported) is a cession of the source currency, not a holding of EUR.
+export function treatFiatSwapAsSale(tx: Transaction): Transaction {
+  if (tx.transaction_type !== 'swap' || !tx.currency_from) return tx;
+  if (!isFiat(tx.currency_to) || isFiat(tx.currency_from)) return tx;
+  return {
+    ...tx,
+    transaction_type: 'sell',
+    currency_to: tx.currency_from,
+    currency_from: null,
+    amount_to: null,
+    price_per_unit: tx.amount > 0 ? tx.total_value / tx.amount : 0,
+  };
+}
+
 export interface TransactionInput {
   type: TransactionType;
   currencyFrom: string;

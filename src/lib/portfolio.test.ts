@@ -101,4 +101,47 @@ describe('computePortfolio', () => {
       expect(p.timeline.map((point) => point.totalInvested)).toEqual([200, 200, 1200]);
     });
   });
+
+  describe('ordering', () => {
+    it('applies a buy before a sale made at the same instant, whatever the entry order', () => {
+      const sameTime = '2026-03-01T10:00:00.000Z';
+      const sale = tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 12000, transaction_date: sameTime });
+      const purchase = tx({ currency_to: 'BTC', amount: 1, total_value: 10000, transaction_date: sameTime });
+      for (const list of [[sale, purchase], [purchase, sale]]) {
+        const p = computePortfolio(list);
+        expect(p.holdings).toEqual([]);
+        expect(p.totalInvested).toBe(0);
+      }
+    });
+  });
+
+  describe('swap towards fiat (legacy or imported data)', () => {
+    it('is a sale of the source, not a holding of EUR', () => {
+      const p = computePortfolio([
+        buy('BTC', 1, 10000, 1),
+        swap('BTC', 'EUR', 1, 30000, 30000, 2),
+      ]);
+      expect(find(p, 'EUR')).toBeUndefined();
+      expect(find(p, 'BTC')).toBeUndefined();
+      expect(p.totalInvested).toBe(0);
+    });
+
+    it('removes only the swapped share of the cost', () => {
+      const p = computePortfolio([buy('BTC', 1, 10000, 1), swap('BTC', 'EUR', 0.5, 15000, 15000, 2)]);
+      expect(find(p, 'BTC')).toMatchObject({ quantity: 0.5, totalInvested: 5000 });
+    });
+  });
+
+  describe('capping', () => {
+    it('does not go below zero when selling more than held', () => {
+      const p = computePortfolio([buy('BTC', 1, 100, 1), sell('BTC', 2, 300, 2)]);
+      expect(p.holdings).toEqual([]);
+      expect(p.totalInvested).toBe(0);
+    });
+
+    it('lets a full sale then a rebuy restart from the new price', () => {
+      const p = computePortfolio([buy('BTC', 1, 100, 1), sell('BTC', 1, 300, 2), buy('BTC', 2, 800, 3)]);
+      expect(find(p, 'BTC')).toMatchObject({ quantity: 2, totalInvested: 800, averagePrice: 400 });
+    });
+  });
 });
