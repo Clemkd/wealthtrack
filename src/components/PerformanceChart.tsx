@@ -170,11 +170,11 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
           </p>
         </div>
         <div className="bg-green-50 rounded-lg p-3 sm:p-4">
-          <p className="text-sm text-green-600 font-medium mb-1">Plus haut</p>
+          <p className="text-sm text-green-700 font-medium mb-1">Plus haut</p>
           <p className="text-xl sm:text-2xl font-bold text-green-900">{formatValue(maxValue)}</p>
         </div>
         <div className="bg-orange-50 rounded-lg p-3 sm:p-4">
-          <p className="text-sm text-orange-600 font-medium mb-1">Transactions</p>
+          <p className="text-sm text-orange-700 font-medium mb-1">Transactions</p>
           <p className="text-xl sm:text-2xl font-bold text-orange-900">{chartData.length}</p>
         </div>
       </div>

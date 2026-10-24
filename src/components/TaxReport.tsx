@@ -38,7 +38,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <Calendar className="w-6 h-6 text-blue-600" />
+            <Calendar aria-hidden="true" className="w-6 h-6 text-blue-600" />
             <h3 className="text-lg font-bold text-gray-900">Sélectionner l'année fiscale</h3>
           </div>
           <select
@@ -111,7 +111,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div className="flex justify-between">
               <span className="text-gray-600">Plus-values:</span>
-              <span className="font-semibold text-green-600">
+              <span className="font-semibold text-green-700">
                 +{' '}
                 {taxData.capitalGains.toLocaleString('fr-FR', {
                   minimumFractionDigits: 2,
@@ -136,7 +136,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-4">
           <div className="flex items-start gap-2">
-            <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <Info aria-hidden="true" className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
             <div>
               <h4 className="font-semibold text-amber-900 mb-1">Méthode de calcul</h4>
               <p className="text-sm text-amber-800">
@@ -150,7 +150,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
         {isExempt && taxData.totalSells > 0 && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
             <div className="flex items-start gap-2">
-              <Info className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <Info aria-hidden="true" className="w-5 h-5 text-green-700 mt-0.5 flex-shrink-0" />
               <div>
                 <h4 className="font-semibold text-green-900 mb-1">Exonération applicable</h4>
                 <p className="text-sm text-green-800">
@@ -228,7 +228,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
           onClick={handleDownload}
           className="mt-6 w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
         >
-          <Download className="w-5 h-5" />
+          <Download aria-hidden="true" className="w-5 h-5" />
           Télécharger le rapport CSV
         </button>
       </div>
@@ -254,7 +254,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
                       minute: '2-digit',
                       second: '2-digit',
                     })}{' '}
-                    <span className="text-gray-400">
+                    <span className="text-gray-500">
                       {String(new Date(tx.transaction_date).getMilliseconds()).padStart(3, '0')}
                     </span>
                   </span>

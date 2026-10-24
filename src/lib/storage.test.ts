@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetSafeStorage } from './safeStorage';
 import {
   addTransaction,
   clearUnreadableData,
@@ -7,6 +8,7 @@ import {
   getTransactions,
   getUnreadableDataCopy,
   hasUnreadableData,
+  isStorageUnavailable,
   updateTransaction,
 } from './storage';
 
@@ -17,6 +19,7 @@ const store = new Map<string, string>();
 const copies = (): string[] => JSON.parse(store.get(CORRUPT_KEY) ?? '[]');
 
 beforeEach(() => {
+  resetSafeStorage();
   store.clear();
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
@@ -213,5 +216,44 @@ describe('write helpers', () => {
 
     deleteTransaction(added.id);
     expect(getTransactions()).toEqual([]);
+  });
+});
+
+describe('when the browser storage does not work', () => {
+  const refuse = () => {
+    throw new DOMException('denied', 'SecurityError');
+  };
+
+  it('reads an empty list and keeps new transactions in memory for the session', () => {
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse, removeItem: refuse });
+    expect(getTransactions()).toEqual([]);
+    expect(hasUnreadableData()).toBe(false);
+    const added = addTransaction({
+      transaction_type: 'buy',
+      currency_from: null,
+      currency_to: 'BTC',
+      amount: 1,
+      price_per_unit: 1,
+      total_value: 1,
+      price_per_unit_usd: null,
+      total_value_usd: null,
+      transaction_date: '2026-01-01T10:00:00.000Z',
+      notes: '',
+    });
+    expect(getTransactions().map((t) => t.id)).toEqual([added.id]);
+    deleteTransaction(added.id);
+    expect(getTransactions()).toEqual([]);
+  });
+
+  it('tells that the storage is unavailable', () => {
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse, removeItem: refuse });
+    expect(isStorageUnavailable()).toBe(true);
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    });
+    resetSafeStorage();
+    expect(isStorageUnavailable()).toBe(false);
   });
 });

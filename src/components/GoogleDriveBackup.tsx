@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Cloud, CloudOff, X, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { Transaction } from '../types/database';
 import AutoBackupSwitch from './AutoBackupSwitch';
+import Dialog from './Dialog';
+import Notice from './Notice';
 import { shouldScheduleBackup, signatureHash, transactionsSignature } from '../lib/autoBackup';
 import { saveTransactions } from '../lib/storage';
 import {
@@ -28,10 +30,12 @@ const AUTO_BACKUP_DEBOUNCE_MS = 3000;
 interface GoogleDriveBackupProps {
   transactions: Transaction[];
   onRestore: () => void;
+  // Opens the panel at once (the panel is otherwise opened by its button)
+  initiallyOpen?: boolean;
 }
 
-export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDriveBackupProps) {
-  const [showPanel, setShowPanel] = useState(false);
+export default function GoogleDriveBackup({ transactions, onRestore, initiallyOpen = false }: GoogleDriveBackupProps) {
+  const [showPanel, setShowPanel] = useState(initiallyOpen);
   const [settings, setSettings] = useState<GDriveSettings>(() => getGDriveSettings());
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -253,21 +257,15 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
         }
         aria-label="Sauvegarde Google Drive"
       >
-        {connected ? <Cloud className="w-5 h-5" /> : <CloudOff className="w-5 h-5" />}
+        {connected ? <Cloud aria-hidden="true" className="w-5 h-5" /> : <CloudOff aria-hidden="true" className="w-5 h-5" />}
         <span className="hidden sm:inline">Drive</span>
       </button>
 
       {showPanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="gdrive-panel-title"
-            className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4"
-          >
+        <Dialog titleId="gdrive-panel-title" className="bg-white rounded-xl shadow-2xl max-w-md">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center gap-2">
-                <Cloud className="w-5 h-5 text-blue-600" />
+                <Cloud aria-hidden="true" className="w-5 h-5 text-blue-600" />
                 <h2 id="gdrive-panel-title" className="text-lg font-semibold text-gray-900">
                   Sauvegarde Google Drive
                 </h2>
@@ -275,24 +273,24 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
               <button
                 onClick={() => setShowPanel(false)}
                 aria-label="Fermer"
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
               >
-                <X className="w-5 h-5" />
+                <X aria-hidden="true" className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-4 space-y-4">
               {autoBackupError && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                <Notice tone="error">
+                  <AlertTriangle aria-hidden="true" className="w-4 h-4 shrink-0" />
                   Sauvegarde automatique en échec : {autoBackupError}
-                </div>
+                </Notice>
               )}
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                <Notice tone="error">
+                  <AlertTriangle aria-hidden="true" className="w-4 h-4 shrink-0" />
                   {error}
-                </div>
+                </Notice>
               )}
               {showRedirectOption && !connected && (
                 <button
@@ -304,19 +302,20 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                 </button>
               )}
               {success && (
-                <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm">
-                  <Check className="w-4 h-4 shrink-0" />
+                <Notice tone="success">
+                  <Check aria-hidden="true" className="w-4 h-4 shrink-0" />
                   {success}
-                </div>
+                </Notice>
               )}
 
               {!envClientId && (
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="gdrive-client-id" className="block text-sm font-medium text-gray-700">
                     Google Client ID
                   </label>
                   <div className="flex gap-2">
                     <input
+                      id="gdrive-client-id"
                       type="text"
                       value={clientIdInput}
                       onChange={(e) => setClientIdInput(e.target.value)}
@@ -399,9 +398,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
                     {loading ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <RefreshCw aria-hidden="true" className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Upload className="w-4 h-4" />
+                      <Upload aria-hidden="true" className="w-4 h-4" />
                     )}
                     Sauvegarder
                   </button>
@@ -410,14 +409,13 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                     disabled={loading}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
                   >
-                    <Download className="w-4 h-4" />
+                    <Download aria-hidden="true" className="w-4 h-4" />
                     Restaurer
                   </button>
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </>
   );

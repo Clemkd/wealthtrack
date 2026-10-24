@@ -3,6 +3,8 @@ import { addTransaction, updateTransaction } from '../lib/storage';
 import { Transaction, TransactionType, getReceivedAmount } from '../types/database';
 import { getEurToUsdRate } from '../lib/exchangeRate';
 import { buildTransactionData } from '../lib/transactionForm';
+import Dialog from './Dialog';
+import Notice from './Notice';
 import { X, Plus, Save } from 'lucide-react';
 
 type PriceCurrency = 'EUR' | 'USD';
@@ -110,13 +112,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="transaction-form-title"
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-      >
+    <Dialog titleId="transaction-form-title" className="bg-white rounded-2xl shadow-2xl max-w-2xl">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center rounded-t-2xl">
           <h2 id="transaction-form-title" className="text-2xl font-bold text-gray-900">
             {isEditing ? 'Modifier la transaction' : 'Nouvelle transaction'}
@@ -127,20 +123,21 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
             aria-label="Fermer"
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X aria-hidden="true" className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <span id="transaction-type-label" className="block text-sm font-medium text-gray-700 mb-2">
               Type de transaction
-            </label>
-            <div className="grid grid-cols-3 gap-3">
+            </span>
+            <div role="group" aria-labelledby="transaction-type-label" className="grid grid-cols-3 gap-3">
               {(['buy', 'sell', 'swap'] as TransactionType[]).map((type) => (
                 <button
                   key={type}
                   type="button"
+                  aria-pressed={transactionType === type}
                   onClick={() => setTransactionType(type)}
                   className={`py-3 px-4 rounded-lg font-medium transition-all ${
                     transactionType === type
@@ -298,9 +295,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
+            <Notice tone="error">{error}</Notice>
           )}
 
           <div className="flex gap-3 pt-4">
@@ -316,12 +311,11 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
               disabled={loading}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {isEditing ? <Save className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+              {isEditing ? <Save aria-hidden="true" className="w-5 h-5" /> : <Plus aria-hidden="true" className="w-5 h-5" />}
               {loading ? 'Enregistrement...' : 'Enregistrer'}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

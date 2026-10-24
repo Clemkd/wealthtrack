@@ -23,7 +23,9 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
   const original = (shown: Transaction) => transactions.find((t) => t.id === shown.id) ?? shown;
 
   const handleDelete = (id: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer cette transaction?')) {
+    const target = displayed.find((tx) => tx.id === id);
+    const what = target ? describe(target) : 'cette transaction';
+    if (!confirm(`Supprimer ${what} ? Cette action est irréversible.`)) {
       return;
     }
 
@@ -31,14 +33,20 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
     onUpdate();
   };
 
+  // Names a transaction for the buttons of its row, so that they are told apart
+  const describe = (tx: Transaction) =>
+    `${getTypeLabel(tx.transaction_type)} ${
+      tx.transaction_type === 'swap' ? `${tx.currency_from} vers ${tx.currency_to}` : tx.currency_to
+    } du ${new Date(tx.transaction_date).toLocaleDateString('fr-FR')}`;
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'buy':
-        return <ArrowDownRight className="w-5 h-5 text-green-600" />;
+        return <ArrowDownRight aria-hidden="true" className="w-5 h-5 text-green-700" />;
       case 'sell':
-        return <ArrowUpRight className="w-5 h-5 text-red-600" />;
+        return <ArrowUpRight aria-hidden="true" className="w-5 h-5 text-red-600" />;
       case 'swap':
-        return <ArrowLeftRight className="w-5 h-5 text-blue-600" />;
+        return <ArrowLeftRight aria-hidden="true" className="w-5 h-5 text-blue-600" />;
       default:
         return null;
     }
@@ -105,17 +113,17 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       onClick={() => setEditing(original(transaction))}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="Modifier"
-                      aria-label="Modifier"
+                      aria-label={`Modifier : ${describe(transaction)}`}
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil aria-hidden="true" className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDelete(transaction.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Supprimer"
-                      aria-label="Supprimer"
+                      aria-label={`Supprimer : ${describe(transaction)}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 aria-hidden="true" className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -145,7 +153,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                     {formatPrice(transaction.price_per_unit)}{' '}
                     €
                     {transaction.price_per_unit_usd != null && (
-                      <span className="text-gray-400 ml-1">
+                      <span className="text-gray-500 ml-1">
                         ({formatPrice(transaction.price_per_unit_usd, 'en-US')}{' '}
                         $)
                       </span>
@@ -267,12 +275,12 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                   </td>
                   <td className="px-6 py-4 text-right text-gray-700">
                     {transaction.transaction_type === 'swap' && (
-                      <div className="text-xs text-gray-400">Prix unitaire (monnaie source)</div>
+                      <div className="text-xs text-gray-500">Prix unitaire (monnaie source)</div>
                     )}
                     {formatPrice(transaction.price_per_unit)}{' '}
                     €
                     {transaction.price_per_unit_usd != null && (
-                      <div className="text-xs text-gray-400">
+                      <div className="text-xs text-gray-500">
                         {formatPrice(transaction.price_per_unit_usd, 'en-US')}{' '}
                         $
                       </div>
@@ -285,7 +293,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                     })}{' '}
                     €
                     {transaction.total_value_usd != null && (
-                      <div className="text-xs text-gray-400 font-normal">
+                      <div className="text-xs text-gray-500 font-normal">
                         {transaction.total_value_usd.toLocaleString('en-US', {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
@@ -312,17 +320,17 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       onClick={() => setEditing(original(transaction))}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="Modifier"
-                      aria-label="Modifier"
+                      aria-label={`Modifier : ${describe(transaction)}`}
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil aria-hidden="true" className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDelete(transaction.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Supprimer"
-                      aria-label="Supprimer"
+                      aria-label={`Supprimer : ${describe(transaction)}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 aria-hidden="true" className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Dialog from './Dialog';
 import { X, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 
 interface ErrorModalProps {
@@ -11,24 +12,21 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
   const [showStack, setShowStack] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="error-modal-title"
-        className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-lg mx-4"
-      >
+    <Dialog
+      titleId="error-modal-title"
+      className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 max-w-lg"
+    >
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <div className="flex items-center gap-2 text-red-400">
-            <AlertTriangle className="w-5 h-5" />
+            <AlertTriangle aria-hidden="true" className="w-5 h-5" />
             <h2 id="error-modal-title" className="text-lg font-semibold">Erreur</h2>
           </div>
           <button
             onClick={onClose}
             aria-label="Fermer"
-            className="text-gray-400 hover:text-white transition-colors"
+            className="p-2 text-gray-300 hover:text-white transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X aria-hidden="true" className="w-5 h-5" />
           </button>
         </div>
 
@@ -39,17 +37,17 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
             <div>
               <button
                 onClick={() => setShowStack(!showStack)}
-                className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+                className="flex items-center gap-1 text-sm text-gray-300 hover:text-white transition-colors"
               >
                 {showStack ? (
-                  <ChevronDown className="w-4 h-4" />
+                  <ChevronDown aria-hidden="true" className="w-4 h-4" />
                 ) : (
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight aria-hidden="true" className="w-4 h-4" />
                 )}
                 Détails techniques
               </button>
               {showStack && (
-                <pre className="mt-2 p-3 bg-gray-800 rounded-lg text-xs text-gray-400 overflow-auto max-h-60 whitespace-pre-wrap break-words">
+                <pre className="mt-2 p-3 bg-gray-800 rounded-lg text-xs text-gray-300 overflow-auto max-h-60 whitespace-pre-wrap break-words">
                   {stackTrace}
                 </pre>
               )}
@@ -65,7 +63,6 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
             Fermer
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

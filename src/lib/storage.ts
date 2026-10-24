@@ -1,4 +1,5 @@
 import { Transaction } from '../types/database';
+import { safeLocal } from './safeStorage';
 import { dedupeIds, newId, normalizeTransaction } from './transactions';
 
 const STORAGE_KEY = 'wealthtrack_transactions';
@@ -7,7 +8,7 @@ const CORRUPT_KEY = 'wealthtrack_transactions_corrupt';
 // What could not be read is kept, as a list of the different raw contents met, so
 // that no later read or write can lose it.
 function readUnreadableCopies(): string[] {
-  const stored = localStorage.getItem(CORRUPT_KEY);
+  const stored = safeLocal.getItem(CORRUPT_KEY);
   if (stored === null) return [];
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -20,28 +21,29 @@ function readUnreadableCopies(): string[] {
 
 // Returns true when this raw content is safely set aside (written now, or already there).
 function backUpUnreadableData(raw: string): boolean {
-  try {
-    const copies = readUnreadableCopies();
-    if (copies.includes(raw)) return true;
-    localStorage.setItem(CORRUPT_KEY, JSON.stringify([...copies, raw]));
-    return true;
-  } catch {
-    // Storage full: reading must still work, but nothing was set aside
-    return false;
-  }
+  const copies = readUnreadableCopies();
+  if (copies.includes(raw)) return true;
+  // False when the copy could not really be saved (storage full or refused)
+  return safeLocal.setItem(CORRUPT_KEY, JSON.stringify([...copies, raw]));
+}
+
+// Whether the browser storage does not work, so that what is entered is not kept
+// beyond this page. Checked again after every failed write.
+export function isStorageUnavailable(): boolean {
+  return safeLocal.hasFailed() || !safeLocal.probe();
 }
 
 export function hasUnreadableData(): boolean {
-  return localStorage.getItem(CORRUPT_KEY) !== null;
+  return safeLocal.getItem(CORRUPT_KEY) !== null;
 }
 
 // The set aside copies as one JSON text, for the user to download.
 export function getUnreadableDataCopy(): string | null {
-  return localStorage.getItem(CORRUPT_KEY);
+  return safeLocal.getItem(CORRUPT_KEY);
 }
 
 export function clearUnreadableData(): void {
-  localStorage.removeItem(CORRUPT_KEY);
+  safeLocal.removeItem(CORRUPT_KEY);
 }
 
 // The user has seen the notice: what could not be read is dropped from the stored
@@ -53,7 +55,7 @@ export function acknowledgeUnreadableData(): void {
 }
 
 export function getTransactions(): Transaction[] {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = safeLocal.getItem(STORAGE_KEY);
   if (!raw) return [];
 
   let parsed: unknown;
@@ -93,7 +95,7 @@ export function getTransactions(): Transaction[] {
 }
 
 export function saveTransactions(transactions: Transaction[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+  safeLocal.setItem(STORAGE_KEY, JSON.stringify(transactions));
 }
 
 export function addTransaction(

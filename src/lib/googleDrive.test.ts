@@ -568,3 +568,19 @@ describe('Google script loading', () => {
     await retry;
   });
 });
+
+describe('when the browser storage does not work', () => {
+  const refuse = () => {
+    throw new DOMException('denied', 'SecurityError');
+  };
+
+  it('does not fail the Drive features that only keep small settings', () => {
+    vi.stubGlobal('sessionStorage', { getItem: refuse, setItem: refuse, removeItem: refuse });
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse, removeItem: refuse });
+    expect(drive.restoreSession()).toBe(false);
+    expect(drive.getGDriveSettings().autoBackup).toBe(false);
+    expect(drive.loadBackedUpBaseline('now')).toBe('now');
+    expect(() => drive.signOut()).not.toThrow();
+    expect(drive.handleRedirectResponse()).toBe(false);
+  });
+});

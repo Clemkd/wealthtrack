@@ -19,7 +19,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <div className="p-2 bg-blue-100 rounded-lg">
-              <Wallet className="w-5 h-5 text-blue-600" />
+              <Wallet aria-hidden="true" className="w-5 h-5 text-blue-600" />
             </div>
             <h3 className="text-xs sm:text-sm font-medium text-gray-600">Total investi (positions détenues)</h3>
           </div>
@@ -35,7 +35,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <div className="p-2 bg-green-100 rounded-lg">
-              <Coins className="w-5 h-5 text-green-600" />
+              <Coins aria-hidden="true" className="w-5 h-5 text-green-700" />
             </div>
             <h3 className="text-xs sm:text-sm font-medium text-gray-600">Cryptos détenues</h3>
           </div>
@@ -45,7 +45,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <div className="p-2 bg-orange-100 rounded-lg">
-              <TrendingUp className="w-5 h-5 text-orange-600" />
+              <TrendingUp aria-hidden="true" className="w-5 h-5 text-orange-700" />
             </div>
             <h3 className="text-xs sm:text-sm font-medium text-gray-600">Transactions</h3>
           </div>
@@ -55,7 +55,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <div className="p-2 bg-slate-100 rounded-lg">
-              <PieChart className="w-5 h-5 text-slate-600" />
+              <PieChart aria-hidden="true" className="w-5 h-5 text-slate-600" />
             </div>
             <h3 className="text-xs sm:text-sm font-medium text-gray-600">Positions</h3>
           </div>

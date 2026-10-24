@@ -1,6 +1,7 @@
 import { Transaction } from '../types/database';
 import { getTransactions, getUnreadableDataCopy } from './storage';
 import { signatureHash } from './autoBackup';
+import { safeLocal, safeSession } from './safeStorage';
 import { dedupeIds, normalizeTransaction } from './transactions';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
@@ -39,19 +40,19 @@ let tokenExpiresAt = 0;
 
 function persistToken(): void {
   if (accessToken && tokenExpiresAt > Date.now()) {
-    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ accessToken, tokenExpiresAt }));
+    safeSession.setItem(TOKEN_KEY, JSON.stringify({ accessToken, tokenExpiresAt }));
   } else {
-    sessionStorage.removeItem(TOKEN_KEY);
+    safeSession.removeItem(TOKEN_KEY);
   }
 }
 
 function clearPersistedToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
+  safeSession.removeItem(TOKEN_KEY);
 }
 
 export function restoreSession(): boolean {
   if (accessToken && Date.now() < tokenExpiresAt) return true;
-  const raw = sessionStorage.getItem(TOKEN_KEY);
+  const raw = safeSession.getItem(TOKEN_KEY);
   if (!raw) return false;
   try {
     const data: unknown = JSON.parse(raw);
@@ -85,7 +86,7 @@ export function getGDriveSettings(): GDriveSettings {
     lastBackedUpHash: null,
     coveredUnreadableHash: null,
   };
-  const raw = localStorage.getItem(SETTINGS_KEY);
+  const raw = safeLocal.getItem(SETTINGS_KEY);
   if (!raw) return settings;
   try {
     const data: unknown = JSON.parse(raw);
@@ -109,7 +110,7 @@ export function getGDriveSettings(): GDriveSettings {
 }
 
 export function saveGDriveSettings(settings: GDriveSettings): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  safeLocal.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
 // Applies a change on top of what is stored now, not on a copy that may predate a
@@ -161,7 +162,7 @@ export function isSignedIn(): boolean {
 // anyone could make the app sign in with their own token through a crafted link.
 function beginRedirectFlow(): string {
   const state = crypto.randomUUID();
-  sessionStorage.setItem(STATE_KEY, state);
+  safeSession.setItem(STATE_KEY, state);
   return state;
 }
 
@@ -174,8 +175,8 @@ export function handleRedirectResponse(): boolean {
   // A refusal (#error=...) is cleaned up like an answer carrying a token
   if (!token && !params.get('error')) return false;
 
-  const expectedState = sessionStorage.getItem(STATE_KEY);
-  sessionStorage.removeItem(STATE_KEY);
+  const expectedState = safeSession.getItem(STATE_KEY);
+  safeSession.removeItem(STATE_KEY);
   // The token never stays in the address bar, whether it is accepted or not
   window.history.replaceState(null, '', window.location.pathname + window.location.search);
 

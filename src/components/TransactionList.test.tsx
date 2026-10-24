@@ -43,8 +43,8 @@ describe('TransactionList', () => {
 
   it('gives icon-only buttons an accessible name', () => {
     const html = render([base]);
-    expect(html).toContain('aria-label="Modifier"');
-    expect(html).toContain('aria-label="Supprimer"');
+    expect(html).toMatch(/aria-label="Modifier : /);
+    expect(html).toMatch(/aria-label="Supprimer : /);
   });
 
   it('labels a swap towards fiat as the sale it is counted as', () => {

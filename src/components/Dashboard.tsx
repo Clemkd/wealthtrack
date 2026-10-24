@@ -4,6 +4,7 @@ import {
   getTransactions,
   getUnreadableDataCopy,
   hasUnreadableData,
+  isStorageUnavailable,
   saveTransactions,
 } from '../lib/storage';
 import { downloadBlob } from '../lib/download';
@@ -14,6 +15,7 @@ import TransactionList from './TransactionList';
 import PortfolioStats from './PortfolioStats';
 import PerformanceChart from './PerformanceChart';
 import TaxReport from './TaxReport';
+import Notice from './Notice';
 import GoogleDriveBackup from './GoogleDriveBackup';
 import { Plus, BarChart3, History, FileText, Download, Upload } from 'lucide-react';
 
@@ -36,11 +38,13 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [importError, setImportError] = useState('');
   const [unreadable, setUnreadable] = useState(() => hasUnreadableData());
+  const [storageUnavailable, setStorageUnavailable] = useState(() => isStorageUnavailable());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadTransactions = () => {
     setTransactions(loadSortedTransactions());
     setUnreadable(hasUnreadableData());
+    setStorageUnavailable(isStorageUnavailable());
   };
 
   const handleFormSuccess = () => {
@@ -104,7 +108,7 @@ export default function Dashboard() {
                 title="Exporter les données"
                 aria-label="Exporter les données"
               >
-                <Download className="w-5 h-5" />
+                <Download aria-hidden="true" className="w-5 h-5" />
                 <span className="hidden sm:inline">Exporter</span>
               </button>
               <button
@@ -113,7 +117,7 @@ export default function Dashboard() {
                 title="Importer des données"
                 aria-label="Importer des données"
               >
-                <Upload className="w-5 h-5" />
+                <Upload aria-hidden="true" className="w-5 h-5" />
                 <span className="hidden sm:inline">Importer</span>
               </button>
               <input
@@ -128,7 +132,7 @@ export default function Dashboard() {
                 aria-label="Nouvelle transaction"
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-colors shadow-sm"
               >
-                <Plus className="w-5 h-5" />
+                <Plus aria-hidden="true" className="w-5 h-5" />
                 <span className="hidden sm:inline">Nouvelle transaction</span>
               </button>
             </div>
@@ -149,7 +153,7 @@ export default function Dashboard() {
                       : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                   }`}
                 >
-                  <Icon className="w-5 h-5 shrink-0" />
+                  <Icon aria-hidden="true" className="w-5 h-5 shrink-0" />
                   <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               );
@@ -159,9 +163,16 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {storageUnavailable && (
+          <Notice tone="warning" className="mb-4">
+            Le stockage du navigateur est indisponible (cookies et données de sites bloqués, ou espace
+            plein) : vos transactions ne seront pas conservées après la fermeture de la page.
+            Exportez-les avant de quitter.
+          </Notice>
+        )}
         {unreadable && (
           <div
-            role="status"
+            role="alert"
             className="mb-4 flex items-start justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm"
           >
             <p>
@@ -197,9 +208,9 @@ export default function Dashboard() {
           </div>
         )}
         {importError && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          <Notice tone="error" className="mb-4">
             {importError}
-          </div>
+          </Notice>
         )}
         {activeTab === 'overview' && (
           <div className="space-y-6">
