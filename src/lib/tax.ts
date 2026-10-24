@@ -87,7 +87,8 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
       let plusValue = 0;
       if (valeurGlobalePortefeuille > 0) {
         const fractionAcquisition = prixTotalAcquisition * (prixDeCession / valeurGlobalePortefeuille);
-        plusValue = prixDeCession - fractionAcquisition;
+        // Declared to the cent; the + 0 turns -0 into 0
+        plusValue = Math.round((prixDeCession - fractionAcquisition) * 100) / 100 + 0;
         prixTotalAcquisition = Math.max(0, prixTotalAcquisition - fractionAcquisition);
       }
 

@@ -46,4 +46,16 @@ describe('TransactionList', () => {
     expect(html).toContain('aria-label="Modifier"');
     expect(html).toContain('aria-label="Supprimer"');
   });
+
+  it('labels a swap towards fiat as the sale it is counted as', () => {
+    const toFiat = { ...base, transaction_type: 'swap' as const, currency_from: 'BTC', currency_to: 'EUR', amount_to: 15000 };
+    const html = render([toFiat]);
+    expect(html).toContain('Vente');
+    expect(html).not.toContain('Swap');
+    expect(html).not.toContain('BTC → EUR');
+  });
+
+  it('shows the price of a very cheap crypto with enough decimals', () => {
+    expect(render([{ ...base, price_per_unit: 0.00001, total_value: 0.00001 }])).toContain('0,00001');
+  });
 });

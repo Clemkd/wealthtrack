@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Transaction } from '../types/database';
 import { computePortfolio } from '../lib/portfolio';
+import { formatPrice } from '../lib/format';
 import { Wallet, TrendingUp, Coins, PieChart } from 'lucide-react';
 
 interface PortfolioStatsProps {
@@ -84,10 +85,7 @@ export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Prix moyen:</span>
                     <span className="font-semibold text-gray-900">
-                      {holding.averagePrice.toLocaleString('fr-FR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{' '}
+                      {formatPrice(holding.averagePrice)}{' '}
                       €
                     </span>
                   </div>

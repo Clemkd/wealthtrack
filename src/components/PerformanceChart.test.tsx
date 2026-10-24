@@ -33,4 +33,21 @@ describe('invested capital labels', () => {
     const html = renderToStaticMarkup(<PortfolioStats transactions={[buy]} />);
     expect(html).toContain('Total investi (positions détenues)');
   });
+
+  it('shows the average price of a very cheap crypto with enough decimals', () => {
+    const shib = { ...buy, currency_to: 'SHIB', amount: 1e9, price_per_unit: 0.00001, total_value: 10000 };
+    expect(renderToStaticMarkup(<PortfolioStats transactions={[shib]} />)).toContain('0,00001');
+  });
+
+  it('gives each chart point title a single text (React warns about arrays in <title>)', () => {
+    const errors: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args) => void errors.push(args);
+    try {
+      renderToStaticMarkup(<PerformanceChart transactions={[buy, { ...buy, id: 'b' }]} />);
+    } finally {
+      console.error = original;
+    }
+    expect(errors.flat().join(' ')).not.toMatch(/title element received an array/i);
+  });
 });

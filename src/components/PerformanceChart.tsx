@@ -132,9 +132,7 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
                 stroke="white"
                 strokeWidth="2"
               >
-                <title>
-                  {formatDate(point.date)}: {formatValue(point.cumulativeValue)}
-                </title>
+                <title>{`${formatDate(point.date)}: ${formatValue(point.cumulativeValue)}`}</title>
               </circle>
             </g>
           ))}

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Transaction, getReceivedAmount } from '../types/database';
+import { formatPrice } from '../lib/format';
+import { treatFiatSwapAsSale } from '../lib/transactions';
 import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Trash2, Pencil } from 'lucide-react';
 import { deleteTransaction } from '../lib/storage';
 import TransactionForm from './TransactionForm';
@@ -14,6 +16,11 @@ const formatQuantity = (value: number) =>
 
 export default function TransactionList({ transactions, onUpdate }: TransactionListProps) {
   const [editing, setEditing] = useState<Transaction | null>(null);
+
+  // A swap towards fiat is counted as a sale everywhere, so it is shown as one;
+  // editing opens the transaction as it was entered.
+  const displayed = transactions.map(treatFiatSwapAsSale);
+  const original = (shown: Transaction) => transactions.find((t) => t.id === shown.id) ?? shown;
 
   const handleDelete = (id: string) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette transaction?')) {
@@ -67,13 +74,13 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
       {/* Mobile card layout */}
       <div className="block md:hidden">
-        {transactions.length === 0 ? (
+        {displayed.length === 0 ? (
           <div className="px-4 py-12 text-center text-gray-500">
             Aucune transaction enregistrée
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {transactions.map((transaction) => (
+            {displayed.map((transaction) => (
               <div key={transaction.id} className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -95,7 +102,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                   </div>
                   <div className="flex">
                     <button
-                      onClick={() => setEditing(transaction)}
+                      onClick={() => setEditing(original(transaction))}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="Modifier"
                       aria-label="Modifier"
@@ -135,17 +142,11 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       : 'Prix unitaire'}
                   </span>
                   <span className="text-gray-700">
-                    {transaction.price_per_unit.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{' '}
+                    {formatPrice(transaction.price_per_unit)}{' '}
                     €
                     {transaction.price_per_unit_usd != null && (
                       <span className="text-gray-400 ml-1">
-                        ({transaction.price_per_unit_usd.toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}{' '}
+                        ({formatPrice(transaction.price_per_unit_usd, 'en-US')}{' '}
                         $)
                       </span>
                     )}
@@ -221,14 +222,14 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {transactions.length === 0 ? (
+            {displayed.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                   Aucune transaction enregistrée
                 </td>
               </tr>
             ) : (
-              transactions.map((transaction) => (
+              displayed.map((transaction) => (
                 <tr key={transaction.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
@@ -268,17 +269,11 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                     {transaction.transaction_type === 'swap' && (
                       <div className="text-xs text-gray-400">Prix unitaire (monnaie source)</div>
                     )}
-                    {transaction.price_per_unit.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{' '}
+                    {formatPrice(transaction.price_per_unit)}{' '}
                     €
                     {transaction.price_per_unit_usd != null && (
                       <div className="text-xs text-gray-400">
-                        {transaction.price_per_unit_usd.toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}{' '}
+                        {formatPrice(transaction.price_per_unit_usd, 'en-US')}{' '}
                         $
                       </div>
                     )}
@@ -314,7 +309,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                   </td>
                   <td className="px-6 py-4 text-center">
                     <button
-                      onClick={() => setEditing(transaction)}
+                      onClick={() => setEditing(original(transaction))}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="Modifier"
                       aria-label="Modifier"

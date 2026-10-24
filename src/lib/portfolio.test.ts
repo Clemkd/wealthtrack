@@ -172,4 +172,36 @@ describe('computePortfolio', () => {
     expect(p.totalInvested).toBe(0);
     expect(p.holdings).toEqual([]);
   });
+
+  describe('rules that must not change silently', () => {
+    const same = '2026-03-01T10:00:00.000Z';
+
+    it('applies a swap before a sale made at the same instant, whatever the entry order', () => {
+      const purchase = tx({ currency_to: 'BTC', amount: 1, total_value: 100, transaction_date: '2026-02-01T10:00:00.000Z' });
+      const swapBtcEth = tx({ transaction_type: 'swap', currency_from: 'BTC', currency_to: 'ETH', amount: 1, amount_to: 10, total_value: 250, transaction_date: same });
+      const saleEth = tx({ transaction_type: 'sell', currency_to: 'ETH', amount: 10, total_value: 300, transaction_date: same });
+      for (const list of [[purchase, saleEth, swapBtcEth], [purchase, swapBtcEth, saleEth]]) {
+        const p = computePortfolio(list);
+        expect(p.holdings).toEqual([]);
+        expect(p.totalInvested).toBe(0);
+      }
+    });
+
+    it('reopens a position after liquidating a huge one, without treating it as residue', () => {
+      const p = computePortfolio([
+        tx({ currency_to: 'DOGE', amount: 1e6, total_value: 1000, transaction_date: '2026-01-01T00:00:00.000Z' }),
+        tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 1e6, total_value: 1000, transaction_date: '2026-01-02T00:00:00.000Z' }),
+        tx({ currency_to: 'DOGE', amount: 0.0005, total_value: 0.0005, transaction_date: '2026-01-03T00:00:00.000Z' }),
+        tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 0.0001, total_value: 0.0002, transaction_date: '2026-01-04T00:00:00.000Z' }),
+      ]);
+      expect(find(p, 'DOGE')?.quantity).toBeCloseTo(0.0004, 10);
+      expect(find(p, 'DOGE')?.totalInvested).toBeCloseTo(0.0004, 10);
+    });
+
+    it('never moves more cost than the source holds when swapping more than held', () => {
+      const p = computePortfolio([buy('BTC', 1, 100, 1), swap('BTC', 'ETH', 3, 30, 300, 2)]);
+      expect(p.totalInvested).toBe(100);
+      expect(find(p, 'ETH')?.totalInvested).toBe(100);
+    });
+  });
 });
