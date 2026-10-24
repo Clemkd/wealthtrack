@@ -1,5 +1,6 @@
-import { Transaction } from '../types/database';
 import { useMemo } from 'react';
+import { Transaction } from '../types/database';
+import { computePortfolio } from '../lib/portfolio';
 
 interface PerformanceChartProps {
   transactions: Transaction[];
@@ -15,24 +16,12 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
   const chartData = useMemo(() => {
     if (transactions.length === 0) return [];
 
-    const sortedTx = [...transactions].sort(
-      (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
-    );
-
-    let cumulative = 0;
-    const points: DataPoint[] = sortedTx.map((tx) => {
-      if (tx.transaction_type === 'buy') {
-        cumulative += tx.total_value;
-      } else if (tx.transaction_type === 'sell') {
-        cumulative -= tx.total_value;
-      }
-
-      return {
-        date: new Date(tx.transaction_date),
-        value: tx.total_value,
-        cumulativeValue: cumulative,
-      };
-    });
+    // Same cost basis replay as the overview, so both show the same invested total
+    const points: DataPoint[] = computePortfolio(transactions).timeline.map((point) => ({
+      date: new Date(point.transaction.transaction_date),
+      value: point.transaction.total_value,
+      cumulativeValue: point.totalInvested,
+    }));
 
     return points;
   }, [transactions]);

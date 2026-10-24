@@ -1,90 +1,14 @@
-import { Transaction, getReceivedAmount } from '../types/database';
+import { useMemo } from 'react';
+import { Transaction } from '../types/database';
+import { computePortfolio } from '../lib/portfolio';
 import { Wallet, TrendingUp, Coins, PieChart } from 'lucide-react';
 
 interface PortfolioStatsProps {
   transactions: Transaction[];
 }
 
-interface HoldingData {
-  currency: string;
-  quantity: number;
-  totalInvested: number;
-  totalSold: number;
-  averagePrice: number;
-}
-
 export default function PortfolioStats({ transactions }: PortfolioStatsProps) {
-  const calculateStats = () => {
-    const holdings = new Map<string, HoldingData>();
-
-    const getHolding = (currency: string): HoldingData => {
-      let holding = holdings.get(currency);
-      if (!holding) {
-        holding = { currency, quantity: 0, totalInvested: 0, totalSold: 0, averagePrice: 0 };
-        holdings.set(currency, holding);
-      }
-      return holding;
-    };
-
-    // Remove `amount` from a holding and return the share of its invested cost
-    // that leaves with it (average cost method). totalInvested is the cost of
-    // what is still held, so the average price stays unchanged after a sale.
-    const removeQuantity = (holding: HoldingData, amount: number): number => {
-      if (holding.quantity <= 0) {
-        holding.quantity -= amount;
-        return 0;
-      }
-      const fraction = Math.min(1, amount / holding.quantity);
-      const removedCost = holding.totalInvested * fraction;
-      holding.quantity -= amount;
-      holding.totalInvested -= removedCost;
-      if (holding.quantity <= 1e-12) {
-        holding.quantity = 0;
-        holding.totalInvested = 0;
-      }
-      return removedCost;
-    };
-
-    // Costs depend on what was held at the time, so replay oldest first.
-    const chronological = [...transactions].sort(
-      (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
-    );
-
-    chronological.forEach((tx) => {
-      const holding = getHolding(tx.currency_to);
-
-      if (tx.transaction_type === 'buy') {
-        holding.quantity += tx.amount;
-        holding.totalInvested += tx.total_value;
-      } else if (tx.transaction_type === 'sell') {
-        removeQuantity(holding, tx.amount);
-        holding.totalSold += tx.total_value;
-      } else if (tx.transaction_type === 'swap') {
-        // The cost basis moves with the swapped coins. When the source is not
-        // a tracked holding (e.g. EUR), the swap brings in new money instead.
-        let transferredCost = tx.total_value;
-        if (tx.currency_from) {
-          const fromHolding = getHolding(tx.currency_from);
-          if (fromHolding.quantity > 0) {
-            transferredCost = removeQuantity(fromHolding, tx.amount);
-          } else {
-            removeQuantity(fromHolding, tx.amount);
-          }
-        }
-        holding.quantity += getReceivedAmount(tx);
-        holding.totalInvested += transferredCost;
-      }
-    });
-
-    holdings.forEach((holding) => {
-      holding.averagePrice = holding.quantity > 0 ? holding.totalInvested / holding.quantity : 0;
-    });
-
-    return Array.from(holdings.values()).filter((h) => h.quantity > 0);
-  };
-
-  const holdings = calculateStats();
-  const totalInvested = holdings.reduce((sum, h) => sum + h.totalInvested, 0);
+  const { holdings, totalInvested } = useMemo(() => computePortfolio(transactions), [transactions]);
   const uniqueCurrencies = holdings.length;
   const totalTransactions = transactions.length;
 
