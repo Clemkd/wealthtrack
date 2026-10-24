@@ -104,4 +104,9 @@ describe('ErrorModal', () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-label="Fermer"');
   });
+
+  it('tells a screen reader whether the technical details are shown', () => {
+    const html = renderToStaticMarkup(<ErrorModal error="boom" stackTrace="at x" onClose={() => {}} />);
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>(?:(?!<\/button>).)*Détails techniques/);
+  });
 });

@@ -668,3 +668,22 @@ describe('when the list could not be saved on this device', () => {
 
   const putOld = () => local.set(TX_KEY, JSON.stringify([validTx]));
 });
+
+describe('what the user is told when Google sends them back', () => {
+  it('opens the panel with the reason when the answer is refused', () => {
+    const shown = drive.describeRedirectOutcome('rejected');
+    expect(shown.openPanel).toBe(true);
+    expect(shown.error).toContain("n'a pas pu être vérifiée");
+  });
+
+  it('opens the panel and confirms the connection when the answer is accepted', () => {
+    const shown = drive.describeRedirectOutcome('accepted');
+    expect(shown.openPanel).toBe(true);
+    expect(shown.error).toBe('');
+    expect(shown.success).toMatch(/connect/i);
+  });
+
+  it('shows nothing on a normal page load', () => {
+    expect(drive.describeRedirectOutcome('none')).toEqual({ openPanel: false, error: '', success: '' });
+  });
+});

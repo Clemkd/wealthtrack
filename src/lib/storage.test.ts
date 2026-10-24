@@ -444,4 +444,23 @@ describe('degraded storage never costs the user data that is on disk', () => {
     expect(saveTransactions([tx()] as never)).toBe(false);
     expect(isListDurable()).toBe(false);
   });
+
+  it('saves the copy of the rejected lines again once there is room, and then writes the list', () => {
+    const { data, api } = limited(1500);
+    vi.stubGlobal('localStorage', api);
+    const raw = JSON.stringify([tx({ id: 'v0' }), tx({ id: 'v1' }), tx({ id: 'v2' }), { junk: 'x'.repeat(100), amount: 'abc' }]);
+    data.set(KEY, raw);
+    getTransactions();
+    expect(unreadableCopyStatus()).toBe('unsaved');
+
+    // The same storage gets room (the user frees space): no reload needed
+    const roomy = limited(100000);
+    roomy.data.set(KEY, raw);
+    vi.stubGlobal('localStorage', roomy.api);
+    const added = addTransaction(entry);
+    expect(unreadableCopyStatus()).toBe('saved');
+    expect(isListDurable()).toBe(true);
+    expect(JSON.parse(roomy.data.get(CORRUPT_KEY) as string)).toEqual([raw]);
+    expect(JSON.parse(roomy.data.get(KEY) as string).map((t: { id: string }) => t.id)).toContain(added.id);
+  });
 });

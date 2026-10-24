@@ -9,6 +9,7 @@ import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
   consumeRedirectResponse,
+  describeRedirectOutcome,
   restoreSession,
   signIn,
   signOut,
@@ -64,11 +65,10 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
     // The answer of a redirect sign-in is handled (and removed from the address bar)
     // whether or not the Google script manages to load
     const outcome = consumeRedirectResponse();
-    if (outcome === 'rejected') {
-      setError(
-        "La réponse de Google n'a pas pu être vérifiée (connexion non démarrée ici, état différent ou refus) : recommencez la connexion."
-      );
-    }
+    const shown = describeRedirectOutcome(outcome);
+    if (shown.openPanel) setShowPanel(true);
+    if (shown.error) setError(shown.error);
+    if (shown.success) setSuccess(shown.success);
     const restored = outcome === 'accepted' || restoreSession();
     if (restored) {
       setConnected(true);

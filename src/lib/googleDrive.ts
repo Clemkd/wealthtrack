@@ -209,6 +209,25 @@ export function consumeRedirectResponse(): RedirectOutcome {
   return 'accepted';
 }
 
+// What the page shows after such a response: the page is reloaded when Google sends the
+// user back, so the panel is closed and would hide the outcome.
+export function describeRedirectOutcome(outcome: RedirectOutcome): {
+  openPanel: boolean;
+  error: string;
+  success: string;
+} {
+  if (outcome === 'rejected') {
+    return {
+      openPanel: true,
+      error:
+        "La réponse de Google n'a pas pu être vérifiée (connexion non démarrée ici, état différent ou refus) : recommencez la connexion.",
+      success: '',
+    };
+  }
+  if (outcome === 'accepted') return { openPanel: true, error: '', success: 'Connecté à Google Drive' };
+  return { openPanel: false, error: '', success: '' };
+}
+
 export function handleRedirectResponse(): boolean {
   return consumeRedirectResponse() === 'accepted';
 }

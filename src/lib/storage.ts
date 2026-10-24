@@ -42,8 +42,12 @@ function backUpUnreadableData(raw: string): boolean {
   const copies = readUnreadableCopies();
   // Existing copies that cannot be read must not be overwritten by a new list
   if (copies === null) return false;
-  // A copy that only lives in memory is not safe: the page can close
-  if (copies.includes(raw)) return !safeLocal.isInMemory(CORRUPT_KEY);
+  if (copies.includes(raw)) {
+    if (!safeLocal.isInMemory(CORRUPT_KEY)) return true;
+    // A copy that only lives in memory is not safe (the page can close): try to save it
+    // again, the room may have been made since
+    return safeLocal.setItem(CORRUPT_KEY, JSON.stringify(copies));
+  }
   // False when the copy could not really be saved (storage full or refused)
   return safeLocal.setItem(CORRUPT_KEY, JSON.stringify([...copies, raw]));
 }

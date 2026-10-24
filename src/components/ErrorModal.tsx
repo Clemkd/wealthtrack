@@ -38,6 +38,8 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
             <div>
               <button
                 onClick={() => setShowStack(!showStack)}
+                aria-expanded={showStack}
+                aria-controls="error-modal-stack"
                 className="flex items-center gap-1 text-sm text-gray-300 hover:text-white transition-colors"
               >
                 {showStack ? (
@@ -48,7 +50,7 @@ export default function ErrorModal({ error, stackTrace, onClose }: ErrorModalPro
                 Détails techniques
               </button>
               {showStack && (
-                <pre className="mt-2 p-3 bg-gray-800 rounded-lg text-xs text-gray-300 overflow-auto max-h-60 whitespace-pre-wrap break-words">
+                <pre id="error-modal-stack" className="mt-2 p-3 bg-gray-800 rounded-lg text-xs text-gray-300 overflow-auto max-h-60 whitespace-pre-wrap break-words">
                   {stackTrace}
                 </pre>
               )}
