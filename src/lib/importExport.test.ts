@@ -84,6 +84,13 @@ describe('csvToTransactions', () => {
     expect(t.price_per_unit).toBe(30000.5);
   });
 
+  it('reads exponents written with a decimal comma (tiny prices after a spreadsheet round trip)', () => {
+    const row = 'a;buy;;SHIB;1,5E-07;;1,23E-08;1,845E-15;;;2026-01-01T10:00:00.000Z;;c;u';
+    const result = csvToTransactions(`${HEADER.replace(/,/g, ';')}\n${row}`);
+    expect(result.skipped).toBe(0);
+    expect(result.transactions[0]).toMatchObject({ amount: 1.5e-7, price_per_unit: 1.23e-8, total_value: 1.845e-15 });
+  });
+
   it('keeps the spaces around a note', () => {
     const [back] = csvToTransactions(transactionsToCsv([tx({ notes: '  indented note  ' })])).transactions;
     expect(back.notes).toBe('  indented note  ');

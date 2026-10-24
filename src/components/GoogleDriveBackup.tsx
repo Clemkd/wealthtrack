@@ -46,6 +46,8 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   // Fingerprint of the data as of the last render, and a counter that re-evaluates
   // the effect when the data changed while a backup was running
   const latestHashRef = useRef('');
+  // Set while a restore is in progress: the automatic backup must not write then
+  const restoringRef = useRef(false);
   const [backupRound, setBackupRound] = useState(0);
 
   const [showRedirectOption, setShowRedirectOption] = useState(false);
@@ -99,6 +101,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     }
 
     const timer = setTimeout(async () => {
+      if (restoringRef.current) return;
       const result = await attemptBackup();
       if (result.ok) {
         lastBackedUpRef.current = signature;
@@ -192,6 +195,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     if (!window.confirm('Cela remplacera toutes les données locales par la sauvegarde Google Drive. Continuer ?')) {
       return;
     }
+    restoringRef.current = true;
     setLoading(true);
     setError('');
     setSuccess('');
@@ -214,6 +218,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       setError(err instanceof Error ? err.message : 'Erreur lors de la restauration');
       setConnected(isSignedIn());
     } finally {
+      restoringRef.current = false;
+      // Evaluate again what is due now that the restore is over
+      setBackupRound((round) => round + 1);
       setLoading(false);
     }
   };

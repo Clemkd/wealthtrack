@@ -394,13 +394,21 @@ async function runBackup(force: boolean): Promise<string> {
 
 let backupQueue: Promise<unknown> = Promise.resolve();
 
-// Backups run one after the other: two at once could create two files, or let an
-// older state finish last and overwrite a newer one.
-export function backupToDrive(options: { force?: boolean } = {}): Promise<string> {
-  const run = () => runBackup(options.force === true);
-  const result = backupQueue.then(run, run);
+// Everything that reads or writes the Drive file goes through one queue: two backups
+// at once could create two files, or let an older state finish last; a restore that
+// read while a backup was overwriting the file would restore the amputated state.
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const result = backupQueue.then(task, task);
   backupQueue = result.catch(() => undefined);
   return result;
+}
+
+export function backupToDrive(options: { force?: boolean } = {}): Promise<string> {
+  return enqueue(() => runBackup(options.force === true));
+}
+
+export function restoreFromDrive(): Promise<RestoreResult> {
+  return enqueue(runRestore);
 }
 
 // Called once a restore is really saved locally: this device is then in sync with
@@ -433,7 +441,7 @@ export interface RestoreResult {
   modifiedTime: string | null;
 }
 
-export async function restoreFromDrive(): Promise<RestoreResult> {
+async function runRestore(): Promise<RestoreResult> {
   const file = await findBackupFile();
   if (!file) throw new Error('Aucune sauvegarde trouvée sur Google Drive');
 

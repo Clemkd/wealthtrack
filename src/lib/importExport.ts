@@ -81,7 +81,7 @@ export function csvToTransactions(csv: string): ImportResult {
       // Notes are kept as typed; every other column is trimmed
       const text = unescapeCsvField(name === 'notes' ? value : value.trim());
       raw[name] =
-        decimalComma && NUMBER_COLUMNS.includes(name) && /^[+-]?\d+,\d+$/.test(text)
+        decimalComma && NUMBER_COLUMNS.includes(name) && /^[+-]?\d+,\d+(e[+-]?\d+)?$/i.test(text)
           ? text.replace(',', '.')
           : text;
     });

@@ -422,6 +422,28 @@ describe('backupToDrive', () => {
     expect(maxRunning).toBe(1);
   });
 
+  it('does not read the backup for a restore while a backup is being written', async () => {
+    signInWithStoredToken();
+    inSync();
+    putLocal([validTx]);
+    let running = 0;
+    let maxRunning = 0;
+    const log: string[] = [];
+    fetchMock.mockImplementation(async (url: string, options?: { method?: string }) => {
+      const kind = String(url).includes('alt=media') ? 'media' : String(url).includes('/upload/') ? 'upload' : 'find';
+      log.push(`${options?.method ?? 'GET'} ${kind}`);
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((r) => setTimeout(r, 5));
+      running--;
+      if (kind === 'media') return { ok: true, text: async () => JSON.stringify({ transactions: [validTx] }) };
+      return kind === 'upload' ? saved : found;
+    });
+    await Promise.all([drive.backupToDrive(), drive.restoreFromDrive()]);
+    expect(maxRunning).toBe(1);
+    expect(log.indexOf('PATCH upload')).toBeLessThan(log.indexOf('GET media'));
+  });
+
   it('keeps working after a failed backup', async () => {
     signInWithStoredToken();
     putLocal([validTx]);
