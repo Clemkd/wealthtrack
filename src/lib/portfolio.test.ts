@@ -344,6 +344,24 @@ describe('computePortfolio', () => {
       expect(performance.now() - started).toBeLessThan(1500);
     });
 
+    it('stays fast when many sales and swaps are already covered by one large purchase', () => {
+      const instant = '2024-01-01T12:00:00.000Z';
+      const n = 6000;
+      const purchase = tx({ currency_to: 'BTC', amount: 1e9, total_value: 1, transaction_date: instant });
+      const sales = Array.from({ length: n }, () =>
+        tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 1, transaction_date: instant })
+      );
+      const swaps = Array.from({ length: n }, () =>
+        tx({ transaction_type: 'swap', currency_from: 'BTC', currency_to: 'ETH', amount: 1, amount_to: 1, total_value: 1, transaction_date: instant })
+      );
+      for (const list of [[purchase, ...sales], [purchase, ...sales, ...swaps], [...swaps, ...sales, purchase]]) {
+        const started = performance.now();
+        const sorted = sortChronologically(list);
+        expect(performance.now() - started).toBeLessThan(1000);
+        expect(sorted).toHaveLength(list.length);
+      }
+    });
+
     it('puts a chain of swaps listed in reverse in the order it can run', () => {
       const instant = '2024-01-01T12:00:00.000Z';
       const first = tx({ currency_to: 'S0', amount: 1, total_value: 1, transaction_date: '2023-12-31T12:00:00.000Z' });

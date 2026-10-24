@@ -217,13 +217,18 @@ function orderInstant(group: Transaction[], state: HeldState): Transaction[] {
     queues.set(source, { needs: members.map(need), tree: new MinTree(members) });
   });
 
-  // Candidates: the first covered transaction of a source, and which source it came from
+  // Candidates: the first covered transaction of a source, and which source it came
+  // from. The one currently offered by each source is remembered so that it is never
+  // pushed twice (copies would each be dropped and re-offered, a quadratic cost).
   const candidates = new MinHeap<{ index: number; source: string }>((a, b) => a.index < b.index);
+  const offered = new Map<string, number>();
   const offer = (source: string) => {
     const queue = queues.get(source);
     if (!queue) return;
     const index = firstCovered(queue, state.quantities.get(source) ?? 0);
-    if (index !== Infinity) candidates.push({ index, source });
+    if (index === Infinity || offered.get(source) === index) return;
+    offered.set(source, index);
+    candidates.push({ index, source });
   };
   queues.forEach((_, source) => offer(source));
 
@@ -237,6 +242,7 @@ function orderInstant(group: Transaction[], state: HeldState): Transaction[] {
       const queue = queues.get(source) as SourceQueue;
       if (alive[index] && firstCovered(queue, state.quantities.get(source) ?? 0) === index) break;
       candidates.pop();
+      if (offered.get(source) === index) offered.delete(source);
       offer(source);
     }
 
