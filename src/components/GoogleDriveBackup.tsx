@@ -285,7 +285,13 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
         title={button.title}
         aria-label={button.title}
       >
-        {connected ? <Cloud aria-hidden="true" className="w-5 h-5" /> : <CloudOff aria-hidden="true" className="w-5 h-5" />}
+        {button.tone === 'warning' ? (
+          <AlertTriangle aria-hidden="true" className="w-5 h-5" />
+        ) : connected ? (
+          <Cloud aria-hidden="true" className="w-5 h-5" />
+        ) : (
+          <CloudOff aria-hidden="true" className="w-5 h-5" />
+        )}
         <span className="hidden lg:inline">Drive</span>
       </button>
 
@@ -374,6 +380,13 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
                     et activez l&apos;API Google Drive.
                   </p>
                 </div>
+              )}
+
+              {settings.autoBackup && !connected && (
+                <Notice tone="warning" className="mb-3">
+                  La sauvegarde automatique est activée mais inactive : connectez-vous pour reprendre
+                  les sauvegardes.
+                </Notice>
               )}
 
               <div className="flex items-center justify-between py-2">

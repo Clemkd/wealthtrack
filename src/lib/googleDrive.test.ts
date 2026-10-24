@@ -756,6 +756,14 @@ describe('Google errors are told in French', () => {
     await expect(drive.backupToDrive()).rejects.toThrow(/Trop de requêtes/);
   });
 
+  it('tells too many requests and an unavailable Drive apart from a plain error', async () => {
+    signInWithStoredToken();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 429 });
+    await expect(drive.backupToDrive()).rejects.toThrow(/Trop de requêtes/);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(drive.backupToDrive()).rejects.toThrow(/momentanément indisponible/);
+  });
+
   it('explains a refused access', async () => {
     signInWithStoredToken();
     fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });

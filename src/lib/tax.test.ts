@@ -623,6 +623,16 @@ describe('taxReportToCsv for a French spreadsheet', () => {
     expect(row).not.toContain('00000000006');
   });
 
+  it('writes tiny unit prices in full, never as an exponent or as zero', () => {
+    const csv = csvOf([
+      tx({ currency_to: 'BABYDOGE', amount: 5e9, price_per_unit: 1e-7, total_value: 500, ...at('2026-01-01') }),
+      tx({ currency_to: 'TINY', amount: 1, price_per_unit: 4e-9, total_value: 0.01, ...at('2026-01-02') }),
+    ]);
+    expect(csv).toContain(';0,0000001;');
+    expect(csv).toContain(';0,000000004;');
+    expect(csv).not.toMatch(/\de-\d/);
+  });
+
   it('keeps a text that contains a semicolon in one field', () => {
     const csv = csvOf([tx({ notes: 'a;b', ...at('2026-01-01') })]);
     expect(csv).toContain('"a;b"');

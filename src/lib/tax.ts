@@ -194,9 +194,12 @@ export function taxReportToCsv(data: TaxData): string {
   // Whole cents for values in euros, up to 8 decimals for unit prices, the quantity as
   // it is (without an exponent)
   const cents = (value: number | null) => (value === null ? '' : comma(value.toFixed(2)));
-  const unit = (value: number | null) => (value === null ? '' : comma(String(Number(value.toFixed(8)))));
-  const quantity = (value: number) =>
-    comma(/e/i.test(String(value)) ? value.toFixed(18).replace(/\.?0+$/, '') : String(value));
+  // Written in full: an exponent ("1e-7") is not a number to a spreadsheet
+  const plain = (value: number) =>
+    /e/i.test(String(value)) ? value.toFixed(18).replace(/\.?0+$/, '') : String(value);
+  // Twelve significant digits: enough for the cheapest coins, without float noise
+  const unit = (value: number | null) => (value === null ? '' : comma(plain(Number(value.toPrecision(12)))));
+  const quantity = (value: number) => comma(plain(value));
   const exemption =
     data.totalSells === 0
       ? 'Sans objet (aucune cession)'

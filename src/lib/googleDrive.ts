@@ -362,6 +362,12 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
         "Google Drive a refusé l'accès (403) : vérifiez que l'autorisation d'accès à Drive est accordée et que l'API Google Drive est activée pour ce Client ID."
       );
     }
+    if (response.status === 429) {
+      throw new Error('Trop de requêtes vers Google Drive : réessayez dans quelques minutes.');
+    }
+    if (response.status >= 500) {
+      throw new Error(`Google Drive est momentanément indisponible (${response.status}) : réessayez dans quelques minutes.`);
+    }
     throw new Error(`Erreur Google Drive (${response.status})`);
   }
 
