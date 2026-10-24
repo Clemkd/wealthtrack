@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Transaction } from '../types/database';
 import { computePortfolio } from './portfolio';
+import { normalizeTransaction } from './transactions';
 import { availableTaxYears, computeTax, estimateTax, resolveTaxYear, taxReportToCsv } from './tax';
 
 let n = 0;
@@ -340,6 +341,45 @@ describe('computeTax amounts are exact to the cent', () => {
     expect(Object.is(t.netGain, -0)).toBe(false);
     expect(t.netGain).toBe(cents(t.capitalGains - t.capitalLosses));
     function cents(x: number) { return Math.round(x * 100) / 100 + 0; }
+  });
+});
+
+describe('computeTax transactions at the same instant', () => {
+  const d = (iso: string) => ({ transaction_date: `${iso}T00:00:00.000Z` });
+
+  it('chains swaps made on the same day whichever way the file lists them', () => {
+    const purchase = tx({ currency_to: 'BTC', amount: 1, total_value: 1000, price_per_unit: 1000, ...d('2024-01-01') });
+    const btcToEth = tx({ transaction_type: 'swap', currency_from: 'BTC', currency_to: 'ETH', amount: 1, amount_to: 10, total_value: 1500, price_per_unit: 1500, ...d('2024-01-02') });
+    const ethToSol = tx({ transaction_type: 'swap', currency_from: 'ETH', currency_to: 'SOL', amount: 10, amount_to: 100, total_value: 1500, price_per_unit: 150, ...d('2024-01-02') });
+    const sale = tx({ transaction_type: 'sell', currency_to: 'SOL', amount: 100, total_value: 1600, price_per_unit: 16, ...d('2024-01-03') });
+    for (const list of [[purchase, btcToEth, ethToSol, sale], [sale, ethToSol, btcToEth, purchase]]) {
+      const t = computeTax(list, 2024);
+      expect(t.totalBuys).toBe(1000);
+      expect(t.netGain).toBe(600);
+    }
+  });
+
+  it('keeps a sale followed by a rebuy on the same instant in that order', () => {
+    const first = tx({ currency_to: 'BTC', amount: 1, total_value: 30000, price_per_unit: 30000, ...d('2024-01-01') });
+    const sale = tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 60000, price_per_unit: 60000, ...d('2024-05-01') });
+    const rebuy = tx({ currency_to: 'BTC', amount: 1, total_value: 61000, price_per_unit: 61000, ...d('2024-05-01') });
+    expect(computeTax([first, sale, rebuy], 2024).netGain).toBe(30000);
+  });
+
+  it('counts a date without time in the right year west of UTC (French overseas)', () => {
+    vi.stubEnv('TZ', 'America/Martinique');
+    try {
+      const raw = (date: string, type: string, total: number) => ({
+        id: date + type, transaction_type: type, currency_to: 'BTC', amount: 1, price_per_unit: total,
+        total_value: total, transaction_date: date,
+      });
+      const list = [raw('2024-06-01', 'buy', 10000), raw('2025-01-01', 'sell', 10500)]
+        .map(normalizeTransaction) as Transaction[];
+      expect(computeTax(list, 2025).totalSells).toBe(10500);
+      expect(computeTax(list, 2024).totalSells).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

@@ -204,4 +204,31 @@ describe('computePortfolio', () => {
       expect(find(p, 'ETH')?.totalInvested).toBe(100);
     });
   });
+
+  describe('transactions at the same instant keep their entry order unless they cannot run', () => {
+    const d = (iso: string) => ({ transaction_date: `${iso}T00:00:00.000Z` });
+    const chain = () => ({
+      purchase: tx({ currency_to: 'BTC', amount: 1, total_value: 1000, ...d('2024-01-01') }),
+      btcToEth: tx({ transaction_type: 'swap', currency_from: 'BTC', currency_to: 'ETH', amount: 1, amount_to: 10, total_value: 1500, ...d('2024-01-02') }),
+      ethToSol: tx({ transaction_type: 'swap', currency_from: 'ETH', currency_to: 'SOL', amount: 10, amount_to: 100, total_value: 1500, ...d('2024-01-02') }),
+      sale: tx({ transaction_type: 'sell', currency_to: 'SOL', amount: 100, total_value: 1600, ...d('2024-01-03') }),
+    });
+
+    it('chains swaps made on the same day whichever way the file lists them', () => {
+      const { purchase, btcToEth, ethToSol, sale } = chain();
+      for (const list of [[purchase, btcToEth, ethToSol, sale], [sale, ethToSol, btcToEth, purchase]]) {
+        const p = computePortfolio(list);
+        expect(p.holdings).toEqual([]);
+        expect(p.totalInvested).toBe(0);
+      }
+    });
+
+    it('keeps a sale followed by a rebuy on the same instant in that order', () => {
+      const first = tx({ currency_to: 'BTC', amount: 1, total_value: 30000, ...d('2024-01-01') });
+      const sale = tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1, total_value: 60000, ...d('2024-05-01') });
+      const rebuy = tx({ currency_to: 'BTC', amount: 1, total_value: 61000, ...d('2024-05-01') });
+      const p = computePortfolio([first, sale, rebuy]);
+      expect(find(p, 'BTC')).toMatchObject({ quantity: 1, totalInvested: 61000 });
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dedupeIds, normalizeTransaction, validateTransactionInput } from './transactions';
+import { dedupeIds, isFiat, normalizeTransaction, validateTransactionInput } from './transactions';
 import { Transaction } from '../types/database';
 import { afterEach, vi } from 'vitest';
 
@@ -127,6 +127,27 @@ describe('normalizeTransaction', () => {
     for (const amount of ['0x10', '0b11', '1,000', '0,5', '1,5,2', '1 000']) {
       expect(normalizeTransaction({ ...valid, amount })).toBeNull();
     }
+  });
+
+  it('stores a date without a time at noon UTC, so that it is the same day in every time zone', () => {
+    expect(normalizeTransaction({ ...valid, transaction_date: '2025-01-01' })?.transaction_date).toBe(
+      '2025-01-01T12:00:00.000Z'
+    );
+    expect(normalizeTransaction({ ...valid, transaction_date: '2025-01-01T08:30:00Z' })?.transaction_date).toBe(
+      '2025-01-01T08:30:00Z'
+    );
+  });
+
+  it('knows the fiat currencies a crypto holder may meet', () => {
+    for (const code of ['EUR', 'usd', 'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'HUF', 'RON', 'TRY', 'BRL', 'MXN', 'ZAR', 'INR', 'CNY', 'HKD', 'NZD', 'SGD', 'KRW', 'ILS', 'AED']) {
+      expect(isFiat(code)).toBe(true);
+    }
+    for (const code of ['BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'DOGE']) expect(isFiat(code)).toBe(false);
+  });
+
+  it('refuses a swap towards any fiat currency, not only the common ones', () => {
+    const swap = { type: 'swap' as const, currencyFrom: 'BTC', currencyTo: 'PLN', amount: 1, amountTo: 5, price: 10 };
+    expect(validateTransactionInput(swap)).toMatch(/Vente/);
   });
 
   it('rejects an hour or a minute that does not exist and accepts every offset form', () => {

@@ -3,7 +3,11 @@ import { Transaction, TransactionType } from '../types/database';
 const VALID_TYPES: TransactionType[] = ['buy', 'sell', 'swap'];
 
 // Fiat currencies are not crypto holdings: moving into one is a cession.
-const FIAT_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY'];
+const FIAT_CURRENCIES = [
+  'EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'NZD', 'SGD', 'HKD', 'CNY', 'KRW', 'INR',
+  'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'HUF', 'RON', 'BGN', 'TRY', 'BRL', 'MXN', 'ZAR', 'ILS',
+  'AED', 'SAR', 'THB', 'RUB', 'UAH',
+];
 
 export function isFiat(currency: string): boolean {
   return FIAT_CURRENCIES.includes(currency.trim().toUpperCase());
@@ -94,6 +98,10 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   // data, which silently moves a transaction to another date
   const date = typeof r.transaction_date === 'string' ? r.transaction_date.trim() : '';
   if (!isValidIsoDate(date)) return null;
+  // A date without a time is the same calendar day everywhere only at noon UTC: at
+  // midnight UTC it is the day before in the Americas, and a sale on 1 January would
+  // fall in the previous tax year
+  const storedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T12:00:00.000Z` : date;
 
   const now = new Date().toISOString();
   const text = (value: unknown, fallback: () => string) =>
@@ -110,7 +118,7 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
     total_value: totalValue,
     price_per_unit_usd: toFiniteNumber(r.price_per_unit_usd),
     total_value_usd: toFiniteNumber(r.total_value_usd),
-    transaction_date: date,
+    transaction_date: storedDate,
     notes: typeof r.notes === 'string' ? r.notes : '',
     created_at: text(r.created_at, () => now),
     updated_at: text(r.updated_at, () => now),

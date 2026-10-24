@@ -1,5 +1,5 @@
 import { Transaction, getReceivedAmount } from '../types/database';
-import { prepareForCalculation } from './transactions';
+import { isFiat, prepareForCalculation } from './transactions';
 
 export interface Holding {
   currency: string;
@@ -31,16 +31,53 @@ export function isNegligible(quantity: number, largestQuantityHeld: number): boo
   return quantity <= Math.max(QUANTITY_EPSILON, largestQuantityHeld * RELATIVE_EPSILON);
 }
 
-// At the same instant a purchase comes before a swap, which comes before a sale
-// (the other order would sell what is not held yet). Remaining ties keep the entry order.
-const TYPE_RANK = { buy: 0, swap: 1, sell: 2 } as const;
+// Whether a transaction can run given what is held: a purchase always can, a sale or
+// a swap needs its source (a fiat source is new money).
+function canRun(tx: Transaction, held: Map<string, number>): boolean {
+  if (tx.transaction_type === 'buy') return true;
+  const source = tx.transaction_type === 'sell' ? tx.currency_to : tx.currency_from;
+  if (!source || isFiat(source)) return true;
+  return (held.get(source) ?? 0) > QUANTITY_EPSILON;
+}
 
+function applyToHeld(tx: Transaction, held: Map<string, number>): void {
+  const add = (currency: string, quantity: number) =>
+    held.set(currency, Math.max(0, (held.get(currency) ?? 0) + quantity));
+  if (tx.transaction_type === 'buy') add(tx.currency_to, tx.amount);
+  else if (tx.transaction_type === 'sell') add(tx.currency_to, -tx.amount);
+  else {
+    if (tx.currency_from) add(tx.currency_from, -tx.amount);
+    add(tx.currency_to, getReceivedAmount(tx));
+  }
+}
+
+// Oldest first. Transactions at the same instant keep the order they were entered
+// in (a sale then a rebuy on the same day stays that way), except that one which
+// cannot run yet, because what it sells or swaps is not held, waits for the others
+// (swaps chained on the same day, or a sale listed before its purchase).
 export function sortChronologically(transactions: Transaction[]): Transaction[] {
-  return [...transactions].sort(
-    (a, b) =>
-      new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime() ||
-      TYPE_RANK[a.transaction_type] - TYPE_RANK[b.transaction_type]
+  const byTime = [...transactions].sort(
+    (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
   );
+  const held = new Map<string, number>();
+  const ordered: Transaction[] = [];
+
+  let start = 0;
+  while (start < byTime.length) {
+    const instant = new Date(byTime[start].transaction_date).getTime();
+    let end = start + 1;
+    while (end < byTime.length && new Date(byTime[end].transaction_date).getTime() === instant) end++;
+
+    const pending = byTime.slice(start, end);
+    while (pending.length > 0) {
+      const index = pending.findIndex((tx) => canRun(tx, held));
+      const [next] = pending.splice(index === -1 ? 0 : index, 1);
+      applyToHeld(next, held);
+      ordered.push(next);
+    }
+    start = end;
+  }
+  return ordered;
 }
 
 // Average cost method. A sale removes the proportional share of the cost of the
