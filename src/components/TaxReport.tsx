@@ -18,6 +18,14 @@ interface TaxData {
 
 const EXEMPTION_THRESHOLD = 305;
 
+function escapeCsvField(value: string | number): string {
+  const text = String(value);
+  if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
 export default function TaxReport({ transactions }: TaxReportProps) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
@@ -84,10 +92,18 @@ export default function TaxReport({ transactions }: TaxReportProps) {
       } else if (tx.transaction_type === 'swap') {
         // Swap crypto→crypto: NOT a taxable event under French law
         // Only update portfolio composition, PTA stays the same
+        const sourceQty = tx.currency_from ? holdings.get(tx.currency_from) || 0 : 0;
+        if (sourceQty <= 0) {
+          // Source is not a tracked holding (e.g. EUR): the swap brings in new
+          // money, i.e. an acquisition, like a buy
+          prixTotalAcquisition += tx.total_value;
+        }
         if (tx.currency_from) {
-          const currentQty = holdings.get(tx.currency_from) || 0;
-          holdings.set(tx.currency_from, Math.max(0, currentQty - tx.amount));
-          lastKnownPrices.set(tx.currency_from, tx.price_per_unit);
+          holdings.set(tx.currency_from, Math.max(0, sourceQty - tx.amount));
+          // Swaps recorded before amount_to existed have an ambiguous price side
+          if (tx.amount_to != null) {
+            lastKnownPrices.set(tx.currency_from, tx.price_per_unit);
+          }
         }
 
         // Add target currency to holdings, priced from the swap's total value
@@ -175,7 +191,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
         tx.notes,
       ]),
     ]
-      .map((row) => row.join(','))
+      .map((row) => row.map(escapeCsvField).join(','))
       .join('\n');
 
     const blob = new Blob(['\ufeff' + csvContent], {

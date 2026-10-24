@@ -108,7 +108,7 @@ function csvToTransactions(csv: string): Transaction[] {
       currency_from: get('currency_from') || null,
       currency_to: get('currency_to'),
       amount: parseFloat(get('amount')) || 0,
-      amount_to: get('amount_to') ? parseFloat(get('amount_to')) : null,
+      amount_to: Number.isFinite(parseFloat(get('amount_to'))) ? parseFloat(get('amount_to')) : null,
       price_per_unit: parseFloat(get('price_per_unit')) || 0,
       total_value: parseFloat(get('total_value')) || 0,
       price_per_unit_usd: get('price_per_unit_usd') ? parseFloat(get('price_per_unit_usd')) : null,

@@ -14,6 +14,8 @@ interface TransactionFormProps {
 
 // Value for a datetime-local input (local time, millisecond precision).
 function toDateTimeLocal(date: Date): string {
+  // Imported transactions may carry an empty or invalid date
+  if (Number.isNaN(date.getTime())) date = new Date();
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 23);
 }
