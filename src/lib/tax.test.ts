@@ -259,6 +259,90 @@ describe('computeTax rules that must not change silently', () => {
   });
 });
 
+describe('computeTax with free transactions (airdrop, gift, staking reward)', () => {
+  it('does not reset the last known price of a coin that is already held', () => {
+    const list = [
+      tx({ currency_to: 'BTC', amount: 1, total_value: 30000, price_per_unit: 30000, ...at('2024-01-01') }),
+      tx({ currency_to: 'ETH', amount: 1, total_value: 2000, price_per_unit: 2000, ...at('2024-01-02') }),
+      tx({ currency_to: 'BTC', amount: 0.001, total_value: 0, price_per_unit: 0, ...at('2024-02-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'ETH', amount: 0.5, total_value: 1000, price_per_unit: 2000, ...at('2024-03-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'BTC', amount: 1.001, total_value: 30030, price_per_unit: 30000, ...at('2025-04-01') }),
+    ];
+    // VGP in 2024 = 1.001 BTC x 30000 + 1 ETH x 2000 = 32030 ; PV = 1000 - 32000 x 1000 / 32030 = 0.94
+    expect(computeTax(list, 2024).netGain).toBe(0.94);
+    expect(Math.abs(computeTax(list, 2025).netGain)).toBeLessThan(100);
+  });
+
+  it('does not reset the price of the source of a free swap either', () => {
+    const list = [
+      tx({ currency_to: 'BTC', amount: 1, total_value: 30000, price_per_unit: 30000, ...at('2024-01-01') }),
+      tx({ currency_to: 'ETH', amount: 1, total_value: 2000, price_per_unit: 2000, ...at('2024-01-02') }),
+      tx({ transaction_type: 'swap', currency_from: 'BTC', currency_to: 'SOL', amount: 0.001, amount_to: 1, total_value: 0, price_per_unit: 0, ...at('2024-02-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'ETH', amount: 0.5, total_value: 1000, price_per_unit: 2000, ...at('2024-03-01') }),
+    ];
+    // BTC stays valued at 30000 (0.999 BTC) ; SOL has no known price: VGP = 29970 + 2000
+    expect(computeTax(list, 2024).netGain).toBeCloseTo(1000 - (32000 * 1000) / 31970, 1);
+  });
+});
+
+describe('computeTax amounts are exact to the cent', () => {
+  it('totals three sales of 305.00 exactly, so the exemption applies', () => {
+    const list = [
+      tx({ amount: 1000, total_value: 100, price_per_unit: 0.1, ...at('2026-01-01') }),
+      tx({ transaction_type: 'sell', amount: 100, total_value: 127.48, price_per_unit: 1.2748, ...at('2026-02-01') }),
+      tx({ transaction_type: 'sell', amount: 100, total_value: 177.36, price_per_unit: 1.7736, ...at('2026-02-02') }),
+      tx({ transaction_type: 'sell', amount: 100, total_value: 0.16, price_per_unit: 0.0016, ...at('2026-02-03') }),
+    ];
+    const t = computeTax(list, 2026);
+    expect(t.totalSells).toBe(305);
+    expect(estimateTax(t)).toEqual({ isExempt: true, estimatedTax: 0, incomeTax: 0, socialContributions: 0 });
+  });
+
+  // Seeded pseudo-random scenarios: every reported amount must be an exact number of cents
+  it('reports cent-exact totals, gains, losses and net gain on varied histories', () => {
+    let seed = 12345;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const cents = (x: number) => Math.round(x * 100) / 100;
+    for (let run = 0; run < 200; run++) {
+      const list: Transaction[] = [];
+      const coins = ['BTC', 'ETH', 'SOL'];
+      coins.forEach((coin, i) => {
+        const amount = cents(1 + random() * 5);
+        const total = cents(50 + random() * 1000);
+        list.push(tx({ currency_to: coin, amount, total_value: total, price_per_unit: total / amount, ...at(`2026-01-0${i + 1}`) }));
+      });
+      for (let k = 0; k < 4; k++) {
+        const coin = coins[Math.floor(random() * 3)];
+        const amount = cents(0.1 + random());
+        const total = cents(10 + random() * 400);
+        list.push(tx({ transaction_type: 'sell', currency_to: coin, amount, total_value: total, price_per_unit: total / amount, ...at(`2026-02-0${k + 1}`) }));
+      }
+      const t = computeTax(list, 2026);
+      for (const value of [t.totalBuys, t.totalSells, t.capitalGains, t.capitalLosses, t.netGain]) {
+        expect(value).toBe(cents(value));
+        expect(Object.is(value, -0)).toBe(false);
+      }
+      expect(t.netGain).toBe(cents(t.capitalGains - t.capitalLosses));
+    }
+  });
+
+  it('never shows a negative zero as the net gain of gains and losses that cancel out', () => {
+    // 0.10 + 0.20 gained, 0.30 lost: the float sum is not exactly 0
+    const list = [
+      tx({ currency_to: 'A', amount: 1, total_value: 100, price_per_unit: 100, ...at('2026-01-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'A', amount: 1, total_value: 100.1, price_per_unit: 100.1, ...at('2026-01-02') }),
+      tx({ currency_to: 'B', amount: 1, total_value: 100, price_per_unit: 100, ...at('2026-02-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'B', amount: 1, total_value: 100.2, price_per_unit: 100.2, ...at('2026-02-02') }),
+      tx({ currency_to: 'C', amount: 1, total_value: 100, price_per_unit: 100, ...at('2026-03-01') }),
+      tx({ transaction_type: 'sell', currency_to: 'C', amount: 1, total_value: 99.7, price_per_unit: 99.7, ...at('2026-03-02') }),
+    ];
+    const t = computeTax(list, 2026);
+    expect(Object.is(t.netGain, -0)).toBe(false);
+    expect(t.netGain).toBe(cents(t.capitalGains - t.capitalLosses));
+    function cents(x: number) { return Math.round(x * 100) / 100 + 0; }
+  });
+});
+
 describe('computeTax prices', () => {
   it('values holdings from total_value, like the portfolio, when price_per_unit is 0', () => {
     const list = [
@@ -277,7 +361,7 @@ describe('computeTax prices', () => {
       tx({ transaction_type: 'sell', currency_to: 'DOGE', amount: 12545170.85, total_value: 2509034.17, ...at('2026-01-03') }),
       tx({ transaction_type: 'swap', currency_from: 'DOGE', currency_to: 'ETH', amount: 1000000, amount_to: 50, total_value: 150000, ...at('2026-01-04') }),
     ];
-    expect(computeTax(list, 2026).totalBuys).toBeCloseTo(569175.77 + 685341.315 + 150000, 2);
+    expect(computeTax(list, 2026).totalBuys).toBe(1404517.09);
   });
 
   it('does not count a swap between two fiat currencies as an acquisition', () => {
@@ -311,7 +395,26 @@ describe('estimateTax', () => {
   const base = { year: 2026, totalBuys: 0, capitalGains: 0, capitalLosses: 0, transactions: [] };
 
   it('is exempt below the 305 € threshold', () => {
-    expect(estimateTax({ ...base, totalSells: 300, netGain: 100 })).toEqual({ isExempt: true, estimatedTax: 0 });
+    expect(estimateTax({ ...base, totalSells: 300, netGain: 100 })).toEqual({
+      isExempt: true,
+      estimatedTax: 0,
+      incomeTax: 0,
+      socialContributions: 0,
+    });
+  });
+
+  it('computes each part to the cent so that the lines add up to the total', () => {
+    // 20.25 x 12.8 % = 2.592 and x 17.2 % = 3.483
+    expect(estimateTax({ ...base, totalSells: 1000, netGain: 20.25 })).toEqual({
+      isExempt: false,
+      incomeTax: 2.59,
+      socialContributions: 3.48,
+      estimatedTax: 6.07,
+    });
+    // The CSV and the screen agree on half cents: 500.15 x 30 % = 150.045
+    const { incomeTax, socialContributions, estimatedTax } = estimateTax({ ...base, totalSells: 1000, netGain: 500.15 });
+    expect(incomeTax + socialContributions).toBeCloseTo(estimatedTax, 10);
+    expect(estimatedTax).toBe(150.05);
   });
 
   it('is exempt exactly at the threshold, not above', () => {
@@ -322,7 +425,7 @@ describe('estimateTax', () => {
   it('applies the flat tax above the threshold', () => {
     const { isExempt, estimatedTax } = estimateTax({ ...base, totalSells: 1000, netGain: 100 });
     expect(isExempt).toBe(false);
-    expect(estimatedTax).toBeCloseTo(30);
+    expect(estimatedTax).toBe(30);
   });
 
   it('never returns a negative tax', () => {
@@ -332,6 +435,11 @@ describe('estimateTax', () => {
 
 describe('taxReportToCsv', () => {
   const data = (list: Transaction[]) => computeTax(list, 2026);
+
+  it('writes the same estimated tax as the screen computes', () => {
+    const base = { year: 2026, totalBuys: 0, totalSells: 1000, capitalGains: 500.15, capitalLosses: 0, netGain: 500.15, transactions: [] };
+    expect(taxReportToCsv(base)).toContain('Impôt estimé (PFU 30%),150.05 €');
+  });
 
   it('escapes notes with commas, quotes and formulas', () => {
     const csv = taxReportToCsv(data([tx({ notes: 'a, "b"', ...at('2026-01-01') }), tx({ notes: '=1+1', ...at('2026-01-02') })]));

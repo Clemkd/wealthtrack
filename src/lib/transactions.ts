@@ -17,13 +17,35 @@ export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+// Plain decimal numbers only: a decimal comma is read as a point (French
+// spreadsheets), but 0x10 or 0b11 are not numbers.
+const DECIMAL_NUMBER = /^[+-]?(\d+([.,]\d*)?|[.,]\d+)(e[+-]?\d+)?$/i;
+
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!DECIMAL_NUMBER.test(text)) return null;
+    const parsed = Number(text.replace(',', '.'));
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+const ISO_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+// ISO 8601 only, and a day that exists: JavaScript would move 2024-02-31 to March 2nd
+function isValidIsoDate(text: string): boolean {
+  const match = ISO_DATE.exec(text);
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  return (
+    calendar.getUTCMonth() === month - 1 &&
+    calendar.getUTCDate() === day &&
+    !Number.isNaN(new Date(text).getTime())
+  );
 }
 
 function toNullableString(value: unknown): string | null {
@@ -63,10 +85,10 @@ export function normalizeTransaction(raw: unknown): Transaction | null {
   if (amountTo !== null && amountTo <= 0) return null;
   if (type === 'swap' && currencyFrom && isFiat(currencyFrom) && isFiat(currencyTo)) return null;
 
-  // ISO 8601 only: other formats (05/01/2024) are read as month/day or day/month
-  // depending on the data, which silently moves a transaction to another date
+  // Other formats (05/01/2024) are read as month/day or day/month depending on the
+  // data, which silently moves a transaction to another date
   const date = typeof r.transaction_date === 'string' ? r.transaction_date.trim() : '';
-  if (!/^\d{4}-\d{2}-\d{2}/.test(date) || Number.isNaN(new Date(date).getTime())) return null;
+  if (!isValidIsoDate(date)) return null;
 
   const now = new Date().toISOString();
   const text = (value: unknown, fallback: () => string) =>

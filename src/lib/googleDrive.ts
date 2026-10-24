@@ -1,5 +1,5 @@
 import { Transaction } from '../types/database';
-import { getTransactions } from './storage';
+import { getTransactions, hasUnreadableData } from './storage';
 import { dedupeIds, normalizeTransaction } from './transactions';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
@@ -15,6 +15,8 @@ export interface GDriveSettings {
   autoBackup: boolean;
   lastBackupDate: string | null;
   clientId: string;
+  // Fingerprint of the transactions as of the last backup or restore
+  lastBackedUpHash: string | null;
 }
 
 interface DriveFile {
@@ -73,7 +75,12 @@ export function restoreSession(): boolean {
 // --- Settings ---
 
 export function getGDriveSettings(): GDriveSettings {
-  const settings: GDriveSettings = { autoBackup: false, lastBackupDate: null, clientId: '' };
+  const settings: GDriveSettings = {
+    autoBackup: false,
+    lastBackupDate: null,
+    clientId: '',
+    lastBackedUpHash: null,
+  };
   const raw = localStorage.getItem(SETTINGS_KEY);
   if (!raw) return settings;
   try {
@@ -85,6 +92,8 @@ export function getGDriveSettings(): GDriveSettings {
       lastBackupDate:
         typeof stored.lastBackupDate === 'string' ? stored.lastBackupDate : settings.lastBackupDate,
       clientId: typeof stored.clientId === 'string' ? stored.clientId : settings.clientId,
+      lastBackedUpHash:
+        typeof stored.lastBackedUpHash === 'string' ? stored.lastBackedUpHash : settings.lastBackedUpHash,
     };
   } catch {
     return settings;
@@ -328,16 +337,21 @@ async function remoteBackupHasTransactions(fileId: string): Promise<boolean> {
   }
 }
 
+const NOT_SYNCHRONISED_MESSAGE =
+  "Sauvegarde annulée : la sauvegarde Google Drive contient des transactions que cet appareil n'a pas synchronisées (autre appareil, ou première connexion). Restaurez-la d'abord.";
+const UNREADABLE_DATA_MESSAGE =
+  'Sauvegarde annulée : des données locales illisibles ont été écartées, la liste de cet appareil est peut-être incomplète. Téléchargez la copie et acquittez l\'avertissement, ou restaurez Google Drive.';
+
 export class BackupConflictError extends Error {
-  constructor() {
-    super(
-      "Sauvegarde annulée : la sauvegarde Google Drive contient des transactions que cet appareil n'a pas synchronisées (autre appareil, ou première connexion). Restaurez-la d'abord."
-    );
+  constructor(message = NOT_SYNCHRONISED_MESSAGE) {
+    super(message);
     this.name = 'BackupConflictError';
   }
 }
 
 async function runBackup(force: boolean): Promise<string> {
+  if (!force && hasUnreadableData()) throw new BackupConflictError(UNREADABLE_DATA_MESSAGE);
+
   const transactions = getTransactions();
   const existing = await findBackupFile();
 
@@ -377,6 +391,9 @@ export function backupToDrive(options: { force?: boolean } = {}): Promise<string
 export interface RestoreResult {
   transactions: Transaction[];
   skipped: number;
+  // Version of the Drive file that was read. The caller records it as synchronised
+  // once the transactions are really saved locally.
+  modifiedTime: string | null;
 }
 
 export async function restoreFromDrive(): Promise<RestoreResult> {
@@ -404,9 +421,11 @@ export async function restoreFromDrive(): Promise<RestoreResult> {
       'Aucune transaction valide dans la sauvegarde : la restauration est annulée, vos données actuelles sont conservées.'
     );
   }
-  // From now on this device is in sync with that file
-  if (file.modifiedTime) updateGDriveSettings({ lastBackupDate: file.modifiedTime });
-  return { transactions, skipped: data.transactions.length - transactions.length };
+  return {
+    transactions,
+    skipped: data.transactions.length - transactions.length,
+    modifiedTime: file.modifiedTime ?? null,
+  };
 }
 
 export type BackupAttempt =

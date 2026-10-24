@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Transaction } from '../types/database';
-import { shouldScheduleBackup, transactionsSignature } from './autoBackup';
+import { shouldScheduleBackup, signatureHash, transactionsSignature } from './autoBackup';
 
 const tx = (id: string, amount = 1): Transaction => ({
   id,
@@ -56,5 +56,13 @@ describe('shouldScheduleBackup', () => {
     // Same inputs on a later render: the state is still not backed up
     expect(shouldScheduleBackup(ready)).toBe(true);
     expect(shouldScheduleBackup({ ...ready, lastBackedUp: 'new' })).toBe(false);
+  });
+});
+
+describe('signatureHash', () => {
+  it('is short, stable and sensitive to changes', () => {
+    expect(signatureHash('abc')).toBe(signatureHash('abc'));
+    expect(signatureHash('abc')).not.toBe(signatureHash('abd'));
+    expect(signatureHash('x'.repeat(100000))).toMatch(/^[0-9a-f]{1,8}$/);
   });
 });

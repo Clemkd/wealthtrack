@@ -12,6 +12,10 @@ export interface FormValues {
   pricePerUnit: string;
   priceCurrency: 'EUR' | 'USD';
   transactionDate: string;
+  // What the date field held when the form opened (editing): while it is unchanged,
+  // the original instant is kept (the field has no time zone, so it cannot always
+  // tell two hours apart, e.g. at the end of daylight saving time)
+  initialTransactionDate?: string;
   notes: string;
 }
 
@@ -27,7 +31,9 @@ export async function buildTransactionData(
   const amount = parseFloat(values.amount);
   const price = parseFloat(values.pricePerUnit);
   const amountTo = parseFloat(values.amountTo);
-  const date = new Date(values.transactionDate);
+  const untouchedDate =
+    existing !== undefined && values.initialTransactionDate === values.transactionDate;
+  const date = new Date(untouchedDate ? existing.transaction_date : values.transactionDate);
 
   const problem = validateTransactionInput({
     type: values.type,

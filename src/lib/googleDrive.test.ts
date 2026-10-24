@@ -189,6 +189,13 @@ describe('attemptBackup', () => {
     expect(drive.isSignedIn()).toBe(false);
   });
 
+  it('forgets the dead token of an expired session, so a reload does not show it as connected', async () => {
+    signInWithStoredToken();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
+    await drive.attemptBackup();
+    expect(session.has(TOKEN_KEY)).toBe(false);
+  });
+
   it('keeps the connection on other errors', async () => {
     signInWithStoredToken();
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
@@ -281,10 +288,52 @@ describe('backupToDrive', () => {
     await expect(drive.backupToDrive()).resolves.toBeTruthy();
   });
 
-  it('is considered synchronised right after a restore', async () => {
+  it('refuses while unreadable local data is set aside, as the local list may be incomplete', async () => {
+    signInWithStoredToken();
+    inSync();
+    local.set('wealthtrack_transactions_corrupt', JSON.stringify(['[lost]']));
+    putLocal([validTx]);
+    fetchMock.mockResolvedValueOnce(found);
+    await expect(drive.backupToDrive()).rejects.toBeInstanceOf(drive.BackupConflictError);
+    expect(fetchMock.mock.calls.some(([, o]) => o?.method === 'PATCH' || o?.method === 'POST')).toBe(false);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive({ force: true })).resolves.toBeTruthy();
+  });
+
+  it('does not count a restore as a synchronisation by itself (the local save may still fail)', async () => {
+    signInWithStoredToken();
+    driveReturns(JSON.stringify({ transactions: [validTx, validTx] }));
+    const restored = await drive.restoreFromDrive();
+    expect(restored.modifiedTime).toBe('2026-02-02T00:00:00Z');
+    expect(drive.getGDriveSettings().lastBackupDate).toBeNull();
+  });
+
+  it('keeps the other settings when a backup records its date', async () => {
+    signInWithStoredToken();
+    local.set(SETTINGS_KEY, JSON.stringify({ autoBackup: true, lastBackupDate: MODIFIED, clientId: 'abc', lastBackedUpHash: 'h1' }));
+    putLocal([validTx]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
+    await drive.backupToDrive();
+    expect(drive.getGDriveSettings()).toMatchObject({ autoBackup: true, clientId: 'abc', lastBackedUpHash: 'h1' });
+  });
+
+  it('writes over a remote file that is not a backup at all', async () => {
+    signInWithStoredToken();
+    putLocal([validTx]);
+    fetchMock
+      .mockResolvedValueOnce(found)
+      .mockResolvedValueOnce({ ok: true, text: async () => 'not json' })
+      .mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive()).resolves.toBeTruthy();
+  });
+
+  it('is considered synchronised once the restore has been recorded', async () => {
     signInWithStoredToken();
     driveReturns(JSON.stringify({ transactions: [validTx] }));
-    await drive.restoreFromDrive();
+    const { modifiedTime } = await drive.restoreFromDrive();
+    drive.updateGDriveSettings({ lastBackupDate: modifiedTime });
     fetchMock.mockReset();
     putLocal([validTx]);
     fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
@@ -366,16 +415,26 @@ describe('session', () => {
 describe('settings', () => {
   it.each(['null', '"text"', '42', '[]', 'not json'])('falls back to defaults for %s', (raw) => {
     local.set(SETTINGS_KEY, raw);
-    expect(drive.getGDriveSettings()).toEqual({ autoBackup: false, lastBackupDate: null, clientId: '' });
+    expect(drive.getGDriveSettings()).toEqual({
+      autoBackup: false,
+      lastBackupDate: null,
+      clientId: '',
+      lastBackedUpHash: null,
+    });
   });
 
   it('fills the missing or mistyped fields of a partial object', () => {
     local.set(SETTINGS_KEY, JSON.stringify({ autoBackup: 'yes', clientId: 'abc' }));
-    expect(drive.getGDriveSettings()).toEqual({ autoBackup: false, lastBackupDate: null, clientId: 'abc' });
+    expect(drive.getGDriveSettings()).toEqual({
+      autoBackup: false,
+      lastBackupDate: null,
+      clientId: 'abc',
+      lastBackedUpHash: null,
+    });
   });
 
   it('merges a change into what is stored now instead of a stale copy', () => {
-    drive.saveGDriveSettings({ autoBackup: false, lastBackupDate: null, clientId: '' });
+    drive.saveGDriveSettings({ autoBackup: false, lastBackupDate: null, clientId: '', lastBackedUpHash: null });
     // A backup finishing elsewhere records its date
     local.set(
       SETTINGS_KEY,

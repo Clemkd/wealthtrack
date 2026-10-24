@@ -5,9 +5,19 @@ export function transactionsSignature(transactions: Transaction[]): string {
   return JSON.stringify([...transactions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
 }
 
+// Short fingerprint (FNV-1a), small enough to be kept in the settings.
+export function signatureHash(signature: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < signature.length; i++) {
+    hash ^= signature.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16);
+}
+
 export interface AutoBackupState {
   signature: string;
-  // Signature of the last state known to be on Drive (null until the first render)
+  // Fingerprint of the last state known to be on Drive (null until the first render)
   lastBackedUp: string | null;
   autoBackup: boolean;
   connected: boolean;

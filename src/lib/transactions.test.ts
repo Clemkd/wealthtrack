@@ -106,6 +106,28 @@ describe('normalizeTransaction', () => {
     expect(normalizeTransaction({ ...valid, transaction_date: '2024-13-45' })).toBeNull();
   });
 
+  it.each(['2024-02-31', '2023-02-29', '2024-04-31', '2024-02-30T10:00:00Z', '2024-01-15,', '2024-01-15 junk'])(
+    'rejects the impossible or malformed date %s',
+    (transaction_date) => {
+      expect(normalizeTransaction({ ...valid, transaction_date })).toBeNull();
+    }
+  );
+
+  it.each(['2024-02-29', '2024-01-15T10:00:00+02:00', '2024-01-15T10:00:00.123Z', '2024-12-31T23:59'])(
+    'accepts the valid date %s',
+    (transaction_date) => {
+      expect(normalizeTransaction({ ...valid, transaction_date })).not.toBeNull();
+    }
+  );
+
+  it('reads decimal commas, as a French spreadsheet writes them, but not hex or binary', () => {
+    expect(normalizeTransaction({ ...valid, amount: '0,5' })?.amount).toBe(0.5);
+    expect(normalizeTransaction({ ...valid, amount: '1.5e3' })?.amount).toBe(1500);
+    expect(normalizeTransaction({ ...valid, amount: '0x10' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, amount: '0b11' })).toBeNull();
+    expect(normalizeTransaction({ ...valid, amount: '1,5,2' })).toBeNull();
+  });
+
   it('rejects a swap between two fiat currencies', () => {
     const swap = { ...valid, transaction_type: 'swap', currency_from: 'EUR', currency_to: 'USD' };
     expect(normalizeTransaction(swap)).toBeNull();

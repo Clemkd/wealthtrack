@@ -64,6 +64,11 @@ describe('Dashboard unreadable data notice', () => {
     expect(renderToStaticMarkup(<Dashboard />)).not.toContain('illisibles');
   });
 
+  it('tells the user at the first render when the stored list is unreadable', () => {
+    store.set('wealthtrack_transactions', '{broken');
+    expect(renderToStaticMarkup(<Dashboard />)).toContain('illisibles');
+  });
+
   it('tells the user when entries were set aside', () => {
     store.set('wealthtrack_transactions_corrupt', '[null]');
     const html = renderToStaticMarkup(<Dashboard />);

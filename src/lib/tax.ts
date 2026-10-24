@@ -4,7 +4,8 @@ import { isNegligible, sortChronologically } from './portfolio';
 import { prepareForCalculation } from './transactions';
 
 export const EXEMPTION_THRESHOLD = 305;
-export const FLAT_TAX_RATE = 0.3;
+export const INCOME_TAX_RATE = 0.128;
+export const SOCIAL_CONTRIBUTIONS_RATE = 0.172;
 
 export interface TaxData {
   year: number;
@@ -61,9 +62,14 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
   };
   // Same price as the portfolio uses: the value of the transaction over its quantity
   const unitPrice = (tx: Transaction) => (tx.amount > 0 ? tx.total_value / tx.amount : tx.price_per_unit);
+  // A free transaction (airdrop, gift, reward) says nothing about the price: the last
+  // known one is kept, otherwise the whole position would be valued at zero
+  const lastKnownPrices = new Map<string, number>();
+  const rememberPrice = (currency: string | null, price: number) => {
+    if (currency && price > 0) lastKnownPrices.set(currency, price);
+  };
 
   let prixTotalAcquisition = 0;
-  const lastKnownPrices = new Map<string, number>();
   const gainByTx = new Map<string, number>();
   // Swaps from a currency that is not held bring new money, like a buy
   const acquisitionSwaps = new Set<string>();
@@ -72,10 +78,10 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
     if (tx.transaction_type === 'buy') {
       prixTotalAcquisition += tx.total_value;
       addHolding(tx.currency_to, tx.amount);
-      lastKnownPrices.set(tx.currency_to, unitPrice(tx));
+      rememberPrice(tx.currency_to, unitPrice(tx));
     } else if (tx.transaction_type === 'sell') {
       const prixDeCession = tx.total_value;
-      lastKnownPrices.set(tx.currency_to, unitPrice(tx));
+      rememberPrice(tx.currency_to, unitPrice(tx));
 
       let valeurGlobalePortefeuille = 0;
       holdings.forEach((qty, currency) => {
@@ -105,49 +111,72 @@ export function computeTax(rawTransactions: Transaction[], year: number): TaxDat
         holdings.set(tx.currency_from, Math.max(0, sourceQty - tx.amount));
         // Swaps recorded before amount_to existed have an ambiguous price side
         if (tx.amount_to != null) {
-          lastKnownPrices.set(tx.currency_from, unitPrice(tx));
+          rememberPrice(tx.currency_from, unitPrice(tx));
         }
       }
 
       const receivedAmount = getReceivedAmount(tx);
       addHolding(tx.currency_to, receivedAmount);
       if (receivedAmount > 0) {
-        lastKnownPrices.set(tx.currency_to, tx.total_value / receivedAmount);
+        rememberPrice(tx.currency_to, tx.total_value / receivedAmount);
       }
     }
   });
 
   const yearTransactions = transactions.filter((tx) => yearOf(tx) === year);
-  let totalBuys = 0;
-  let totalSells = 0;
-  let capitalGains = 0;
-  let capitalLosses = 0;
+  // Everything is added up in whole cents: floating point sums of euros drift
+  // (305.00000000000006) and would change the threshold and the sign of a zero.
+  const toCents = (euros: number) => Math.round(euros * 100);
+  let buysCents = 0;
+  let sellsCents = 0;
+  let gainsCents = 0;
+  let lossesCents = 0;
 
   yearTransactions.forEach((tx) => {
     if (tx.transaction_type === 'buy' || acquisitionSwaps.has(tx.id)) {
-      totalBuys += tx.total_value;
+      buysCents += toCents(tx.total_value);
     } else if (tx.transaction_type === 'sell') {
-      totalSells += tx.total_value;
-      const gain = gainByTx.get(tx.id) || 0;
-      if (gain > 0) capitalGains += gain;
-      else capitalLosses += Math.abs(gain);
+      sellsCents += toCents(tx.total_value);
+      const gainCents = toCents(gainByTx.get(tx.id) || 0);
+      if (gainCents > 0) gainsCents += gainCents;
+      else lossesCents += -gainCents;
     }
   });
 
   return {
     year,
-    totalBuys,
-    totalSells,
-    capitalGains,
-    capitalLosses,
-    netGain: capitalGains - capitalLosses,
+    totalBuys: buysCents / 100,
+    totalSells: sellsCents / 100,
+    capitalGains: gainsCents / 100,
+    capitalLosses: lossesCents / 100,
+    netGain: (gainsCents - lossesCents) / 100 + 0,
     transactions: yearTransactions,
   };
 }
 
-export function estimateTax(data: TaxData): { isExempt: boolean; estimatedTax: number } {
+export interface TaxEstimate {
+  isExempt: boolean;
+  incomeTax: number;
+  socialContributions: number;
+  estimatedTax: number;
+}
+
+// Each part is rounded to the cent and the total is their sum, so that what is
+// displayed adds up.
+export function estimateTax(data: TaxData): TaxEstimate {
   const isExempt = data.totalSells <= EXEMPTION_THRESHOLD;
-  return { isExempt, estimatedTax: isExempt ? 0 : Math.max(0, data.netGain * FLAT_TAX_RATE) };
+  if (isExempt || data.netGain <= 0) {
+    return { isExempt, incomeTax: 0, socialContributions: 0, estimatedTax: 0 };
+  }
+  const netCents = Math.round(data.netGain * 100);
+  const incomeCents = Math.round(netCents * INCOME_TAX_RATE);
+  const socialCents = Math.round(netCents * SOCIAL_CONTRIBUTIONS_RATE);
+  return {
+    isExempt,
+    incomeTax: incomeCents / 100,
+    socialContributions: socialCents / 100,
+    estimatedTax: (incomeCents + socialCents) / 100,
+  };
 }
 
 export function taxReportToCsv(data: TaxData): string {

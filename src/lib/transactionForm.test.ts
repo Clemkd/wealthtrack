@@ -75,6 +75,26 @@ describe('buildTransactionData', () => {
     ).rejects.toThrow(/taux/i);
   });
 
+  it('keeps the original instant when the date field was not touched (daylight saving overlap)', async () => {
+    const existing = { price_per_unit: 100, price_per_unit_usd: 110, transaction_date: '2026-10-25T01:30:00.000Z' };
+    const data = await buildTransactionData(
+      { ...values, transactionDate: '2026-10-25T02:30:00.000', initialTransactionDate: '2026-10-25T02:30:00.000' },
+      rate,
+      existing
+    );
+    expect(data.transaction_date).toBe('2026-10-25T01:30:00.000Z');
+  });
+
+  it('uses the typed date once the field was changed', async () => {
+    const existing = { price_per_unit: 100, price_per_unit_usd: 110, transaction_date: '2026-10-25T01:30:00.000Z' };
+    const data = await buildTransactionData(
+      { ...values, transactionDate: '2026-11-02T10:00:00.000', initialTransactionDate: '2026-10-25T02:30:00.000' },
+      rate,
+      existing
+    );
+    expect(data.transaction_date).toBe(new Date('2026-11-02T10:00:00.000').toISOString());
+  });
+
   it('keeps the recorded USD price when editing without touching price or date', async () => {
     const date = new Date('2023-03-01T10:00:00.000');
     const existing = { price_per_unit: 100, price_per_unit_usd: 110, transaction_date: date.toISOString() };

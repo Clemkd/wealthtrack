@@ -31,7 +31,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
     downloadBlob(blob, `rapport_fiscal_${selectedYear}.csv`);
   };
 
-  const { isExempt, estimatedTax } = estimateTax(taxData);
+  const { isExempt, estimatedTax, incomeTax, socialContributions } = estimateTax(taxData);
 
   return (
     <div className="space-y-6">
@@ -180,7 +180,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
               <div className="flex justify-between sm:flex-col">
                 <span className="text-slate-600">Impôt sur le revenu (12,8%)</span>
                 <span className="font-semibold text-slate-900">
-                  {(taxData.netGain * 0.128).toLocaleString('fr-FR', {
+                  {incomeTax.toLocaleString('fr-FR', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}{' '}
@@ -190,7 +190,7 @@ export default function TaxReport({ transactions }: TaxReportProps) {
               <div className="flex justify-between sm:flex-col">
                 <span className="text-slate-600">Prélèvements sociaux (17,2%)</span>
                 <span className="font-semibold text-slate-900">
-                  {(taxData.netGain * 0.172).toLocaleString('fr-FR', {
+                  {socialContributions.toLocaleString('fr-FR', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}{' '}

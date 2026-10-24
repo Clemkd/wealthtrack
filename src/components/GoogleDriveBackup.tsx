@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Cloud, CloudOff, X, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { Transaction } from '../types/database';
-import { shouldScheduleBackup, transactionsSignature } from '../lib/autoBackup';
+import { shouldScheduleBackup, signatureHash, transactionsSignature } from '../lib/autoBackup';
 import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
@@ -39,7 +39,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const [clientIdInput, setClientIdInput] = useState(settings.clientId);
   const [gisLoaded, setGisLoaded] = useState(false);
   const [gisError, setGisError] = useState(false);
-  // Signature of the last state known to be on Drive: null until the first render
+  // Fingerprint of the last state known to be on Drive: null until the first render
   const lastBackedUpRef = useRef<string | null>(null);
 
   const [showRedirectOption, setShowRedirectOption] = useState(false);
@@ -75,10 +75,10 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   // Auto-backup when the transactions differ from what is on Drive: not on page
   // load, not when only the connection or the option changes
   useEffect(() => {
-    const signature = transactionsSignature(transactions);
+    const signature = signatureHash(transactionsSignature(transactions));
     if (lastBackedUpRef.current === null) {
-      lastBackedUpRef.current = signature;
-      return;
+      // After a reload, what was changed but not backed up yet is still due
+      lastBackedUpRef.current = getGDriveSettings().lastBackedUpHash ?? signature;
     }
     if (
       !shouldScheduleBackup({
@@ -95,6 +95,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       const result = await attemptBackup();
       if (result.ok) {
         lastBackedUpRef.current = signature;
+        updateGDriveSettings({ lastBackedUpHash: signature });
         setLastBackup(result.date);
         setAutoBackupError('');
       } else {
@@ -164,7 +165,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
         }
         date = await backupToDrive({ force: true });
       }
-      lastBackedUpRef.current = transactionsSignature(transactions);
+      const hash = signatureHash(transactionsSignature(transactions));
+      lastBackedUpRef.current = hash;
+      updateGDriveSettings({ lastBackedUpHash: hash });
       setAutoBackupError('');
       setLastBackup(date);
       setSuccess('Sauvegarde effectuée avec succès');
@@ -184,10 +187,13 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     setError('');
     setSuccess('');
     try {
-      const { transactions: restored, skipped } = await restoreFromDrive();
+      const { transactions: restored, skipped, modifiedTime } = await restoreFromDrive();
       saveTransactions(restored);
-      // What was just restored is what is on Drive: no backup is due for it
-      lastBackedUpRef.current = transactionsSignature(restored);
+      // Only now that it is saved locally is this device in sync with that file, and
+      // what was just restored is what is on Drive: no backup is due for it
+      const hash = signatureHash(transactionsSignature(restored));
+      lastBackedUpRef.current = hash;
+      setSettings(updateGDriveSettings({ lastBackupDate: modifiedTime, lastBackedUpHash: hash }));
       setAutoBackupError('');
       onRestore();
       setSuccess(

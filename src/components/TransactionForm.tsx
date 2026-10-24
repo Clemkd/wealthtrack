@@ -48,9 +48,10 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
     transaction ? String(transaction.price_per_unit) : ''
   );
   const [priceCurrency, setPriceCurrency] = useState<PriceCurrency>('EUR');
-  const [transactionDate, setTransactionDate] = useState(
+  const [initialDate] = useState(() =>
     toDateTimeLocal(transaction ? new Date(transaction.transaction_date) : new Date())
   );
+  const [transactionDate, setTransactionDate] = useState(initialDate);
   const [notes, setNotes] = useState(transaction?.notes ?? '');
 
   // A rate request can outlive the form: nothing must be saved once it is closed
@@ -86,6 +87,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
           pricePerUnit,
           priceCurrency,
           transactionDate,
+          initialTransactionDate: initialDate,
           notes,
         },
         getEurToUsdRate,

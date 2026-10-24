@@ -130,6 +130,15 @@ describe('unreadable data safety', () => {
     expect(JSON.parse(store.get(KEY) as string)).toHaveLength(1);
   });
 
+  it('purges a broken main key on acknowledgement so that the notice does not come back', () => {
+    store.set(KEY, '{broken');
+    getTransactions();
+    expect(hasUnreadableData()).toBe(true);
+    acknowledgeUnreadableData();
+    getTransactions();
+    expect(hasUnreadableData()).toBe(false);
+  });
+
   it('keeps a numeric id stable and usable for edit and delete', () => {
     store.set(KEY, JSON.stringify([tx({ id: 5 })]));
     expect(getTransactions()[0].id).toBe('5');

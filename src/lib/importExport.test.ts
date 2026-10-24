@@ -77,6 +77,18 @@ describe('csvToTransactions', () => {
     expect(csvToTransactions(`${HEADER}\r\n${row}\r\n`).transactions).toHaveLength(1);
   });
 
+  it('reads a French spreadsheet file: semicolons and decimal commas', () => {
+    const row = 'a;buy;;BTC;0,5;;30000,5;15000,25;;;2026-01-01T10:00:00.000Z;;c;u';
+    const [t] = csvToTransactions(`${HEADER.replace(/,/g, ';')}\n${row}`).transactions;
+    expect(t.amount).toBe(0.5);
+    expect(t.price_per_unit).toBe(30000.5);
+  });
+
+  it('keeps the spaces around a note', () => {
+    const [back] = csvToTransactions(transactionsToCsv([tx({ notes: '  indented note  ' })])).transactions;
+    expect(back.notes).toBe('  indented note  ');
+  });
+
   it('reads semicolon separated files', () => {
     const csv = `${HEADER.replace(/,/g, ';')}\na;buy;;BTC;1;;100;100;;;2026-01-01T10:00:00.000Z;;c;u`;
     expect(csvToTransactions(csv).transactions[0].currency_to).toBe('BTC');
@@ -91,8 +103,10 @@ describe('csvToTransactions', () => {
       'nocur,buy,,,1,,100,100,,,2026-01-01T10:00:00.000Z,,c,u',
     ];
     const { transactions, skipped } = csvToTransactions([HEADER, ...rows].join('\n'));
-    expect(transactions.map((t) => t.id)).toEqual(['ok']);
-    expect(skipped).toBe(4);
+    // 'comma' has a decimal comma ("0,5"), which a French spreadsheet writes: it is read
+    expect(transactions.map((t) => t.id)).toEqual(['ok', 'comma']);
+    expect(transactions[1].amount).toBe(0.5);
+    expect(skipped).toBe(3);
   });
 
   it('normalises currencies to upper case', () => {

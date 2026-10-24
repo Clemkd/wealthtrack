@@ -101,10 +101,8 @@ export async function readImportZip(file: Blob | ArrayBuffer | Uint8Array): Prom
     throw new Error(`Le fichier ${CSV_FILENAME} est introuvable dans l'archive.`);
   }
 
-  let csvContent = await csvFile.async('string');
-  if (csvContent.charCodeAt(0) === 0xfeff) {
-    csvContent = csvContent.slice(1);
-  }
+  // A leading byte order mark is removed with the header trimming
+  const csvContent = await csvFile.async('string');
 
   const result = csvToTransactions(csvContent);
   if (result.transactions.length === 0) {
