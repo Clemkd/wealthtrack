@@ -47,9 +47,3 @@ export async function getEurToUsdRate(date?: Date): Promise<number | null> {
   }
   return latestRate?.value ?? null;
 }
-
-export async function getUsdToEurRate(date?: Date): Promise<number | null> {
-  const eurToUsd = await getEurToUsdRate(date);
-  if (eurToUsd === null || eurToUsd === 0) return null;
-  return 1 / eurToUsd;
-}

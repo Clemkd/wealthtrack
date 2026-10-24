@@ -328,16 +328,29 @@ async function remoteBackupHasTransactions(fileId: string): Promise<boolean> {
   }
 }
 
-async function runBackup(): Promise<string> {
+export class BackupConflictError extends Error {
+  constructor() {
+    super(
+      "Sauvegarde annulée : la sauvegarde Google Drive contient des transactions que cet appareil n'a pas synchronisées (autre appareil, ou première connexion). Restaurez-la d'abord."
+    );
+    this.name = 'BackupConflictError';
+  }
+}
+
+async function runBackup(force: boolean): Promise<string> {
   const transactions = getTransactions();
   const existing = await findBackupFile();
 
-  // An empty list (new device, unreadable local data) must never silently replace
-  // a backup that holds the real data
-  if (transactions.length === 0 && existing && (await remoteBackupHasTransactions(existing.id))) {
-    throw new Error(
-      'Sauvegarde annulée : aucune transaction locale alors que la sauvegarde Google Drive en contient. Restaurez-la d\'abord.'
-    );
+  // The file is only replaced when it is the one this device last wrote or restored.
+  // Otherwise (new device, another device backed up since) it may hold data that
+  // would be lost, whatever the local list contains.
+  if (
+    !force &&
+    existing &&
+    existing.modifiedTime !== getGDriveSettings().lastBackupDate &&
+    (await remoteBackupHasTransactions(existing.id))
+  ) {
+    throw new BackupConflictError();
   }
 
   const content = JSON.stringify({ transactions, exportedAt: new Date().toISOString() });
@@ -354,8 +367,9 @@ let backupQueue: Promise<unknown> = Promise.resolve();
 
 // Backups run one after the other: two at once could create two files, or let an
 // older state finish last and overwrite a newer one.
-export function backupToDrive(): Promise<string> {
-  const result = backupQueue.then(runBackup, runBackup);
+export function backupToDrive(options: { force?: boolean } = {}): Promise<string> {
+  const run = () => runBackup(options.force === true);
+  const result = backupQueue.then(run, run);
   backupQueue = result.catch(() => undefined);
   return result;
 }
@@ -390,6 +404,8 @@ export async function restoreFromDrive(): Promise<RestoreResult> {
       'Aucune transaction valide dans la sauvegarde : la restauration est annulée, vos données actuelles sont conservées.'
     );
   }
+  // From now on this device is in sync with that file
+  if (file.modifiedTime) updateGDriveSettings({ lastBackupDate: file.modifiedTime });
   return { transactions, skipped: data.transactions.length - transactions.length };
 }
 

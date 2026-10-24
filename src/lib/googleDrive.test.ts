@@ -43,7 +43,10 @@ const signInWithStoredToken = () => {
 
 const driveReturns = (backupJson: string) => {
   fetchMock
-    .mockResolvedValueOnce({ ok: true, json: async () => ({ files: [{ id: 'f1', name: 'b' }] }) })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ files: [{ id: 'f1', name: 'b', modifiedTime: '2026-02-02T00:00:00Z' }] }),
+    })
     .mockResolvedValueOnce({ ok: true, text: async () => backupJson });
 };
 
@@ -91,6 +94,13 @@ describe('restoreFromDrive', () => {
     signInWithStoredToken();
     driveReturns(JSON.stringify({ transactions: [] }));
     expect((await drive.restoreFromDrive()).transactions).toEqual([]);
+  });
+
+  it('restoring ids that are duplicated in the backup gives them distinct ids', async () => {
+    signInWithStoredToken();
+    driveReturns(JSON.stringify({ transactions: [validTx, validTx] }));
+    const { transactions } = await drive.restoreFromDrive();
+    expect(new Set(transactions.map((t) => t.id)).size).toBe(2);
   });
 
   it('refuses a file that is not a backup', async () => {
@@ -188,9 +198,15 @@ describe('attemptBackup', () => {
 
 describe('backupToDrive', () => {
   const putLocal = (list: unknown[]) => local.set(TX_KEY, JSON.stringify(list));
-  const found = { ok: true, json: async () => ({ files: [{ id: 'f1', name: 'b' }] }) };
+  const MODIFIED = '2026-02-02T00:00:00Z';
+  const found = { ok: true, json: async () => ({ files: [{ id: 'f1', name: 'b', modifiedTime: MODIFIED }] }) };
   const none = { ok: true, json: async () => ({ files: [] }) };
-  const saved = { ok: true, json: async () => ({ id: 'f1', modifiedTime: '2026-02-02T00:00:00Z' }) };
+  const saved = { ok: true, json: async () => ({ id: 'f1', modifiedTime: MODIFIED }) };
+  const remoteHolds = (transactions: unknown[]) => ({
+    ok: true,
+    text: async () => JSON.stringify({ transactions }),
+  });
+  const inSync = () => local.set(SETTINGS_KEY, JSON.stringify({ autoBackup: false, lastBackupDate: MODIFIED, clientId: '' }));
 
   it('creates the backup file when none exists, with the local transactions', async () => {
     signInWithStoredToken();
@@ -205,6 +221,7 @@ describe('backupToDrive', () => {
 
   it('updates the existing file', async () => {
     signInWithStoredToken();
+    inSync();
     putLocal([validTx]);
     fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
     await drive.backupToDrive();
@@ -219,6 +236,59 @@ describe('backupToDrive', () => {
       .mockResolvedValueOnce({ ok: true, text: async () => JSON.stringify({ transactions: [validTx] }) });
     await expect(drive.backupToDrive()).rejects.toThrow(/restaur/i);
     expect(fetchMock).toHaveBeenCalledTimes(2); // search + read, no write
+  });
+
+  it('refuses to overwrite a backup that this device never synchronised, even with local data', async () => {
+    signInWithStoredToken();
+    putLocal([validTx]); // new device, one transaction entered
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(remoteHolds([validTx, validTx, validTx, validTx]));
+    await expect(drive.backupToDrive()).rejects.toBeInstanceOf(drive.BackupConflictError);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // search + read, no write
+  });
+
+  it('refuses when another device changed the backup since this one last synchronised', async () => {
+    signInWithStoredToken();
+    local.set(SETTINGS_KEY, JSON.stringify({ autoBackup: false, lastBackupDate: '2026-01-01T00:00:00Z', clientId: '' }));
+    putLocal([validTx]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(remoteHolds([validTx]));
+    await expect(drive.backupToDrive()).rejects.toBeInstanceOf(drive.BackupConflictError);
+  });
+
+  it('lets a synchronised device back up an empty list (everything deleted on purpose)', async () => {
+    signInWithStoredToken();
+    inSync();
+    putLocal([]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive()).resolves.toBeTruthy();
+    expect(fetchMock.mock.calls[1][1].method).toBe('PATCH');
+  });
+
+  it('overwrites on purpose when asked to', async () => {
+    signInWithStoredToken();
+    putLocal([validTx]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive({ force: true })).resolves.toBeTruthy();
+    expect(fetchMock.mock.calls[1][1].method).toBe('PATCH');
+  });
+
+  it('writes over a remote backup that holds no transaction', async () => {
+    signInWithStoredToken();
+    putLocal([validTx]);
+    fetchMock
+      .mockResolvedValueOnce(found)
+      .mockResolvedValueOnce(remoteHolds([]))
+      .mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive()).resolves.toBeTruthy();
+  });
+
+  it('is considered synchronised right after a restore', async () => {
+    signInWithStoredToken();
+    driveReturns(JSON.stringify({ transactions: [validTx] }));
+    await drive.restoreFromDrive();
+    fetchMock.mockReset();
+    putLocal([validTx]);
+    fetchMock.mockResolvedValueOnce(found).mockResolvedValueOnce(saved);
+    await expect(drive.backupToDrive()).resolves.toBeTruthy();
   });
 
   it('does not write when the remote backup cannot be read (server error)', async () => {

@@ -86,15 +86,3 @@ describe('latest rate cache', () => {
     expect(await rates.getEurToUsdRate()).toBe(1.1);
   });
 });
-
-describe('getUsdToEurRate', () => {
-  it('inverts the rate', async () => {
-    fetchMock.mockResolvedValue(answer(2));
-    expect(await rates.getUsdToEurRate()).toBe(0.5);
-  });
-
-  it('returns null when the rate is unavailable', async () => {
-    fetchMock.mockRejectedValue(new Error('network'));
-    expect(await rates.getUsdToEurRate()).toBeNull();
-  });
-});

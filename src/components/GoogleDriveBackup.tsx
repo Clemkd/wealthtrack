@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Cloud, CloudOff, X, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { Transaction } from '../types/database';
+import { shouldScheduleBackup, transactionsSignature } from '../lib/autoBackup';
 import { saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
@@ -10,6 +11,7 @@ import {
   signOut,
   isSignedIn,
   attemptBackup,
+  BackupConflictError,
   backupToDrive,
   restoreFromDrive,
   getBackupInfo,
@@ -36,9 +38,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const [lastBackup, setLastBackup] = useState<string | null>(settings.lastBackupDate);
   const [clientIdInput, setClientIdInput] = useState(settings.clientId);
   const [gisLoaded, setGisLoaded] = useState(false);
-  // Signature of the transactions at the last render: null until the first one
-  const lastSeenRef = useRef<string | null>(null);
-  const backupTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [gisError, setGisError] = useState(false);
+  // Signature of the last state known to be on Drive: null until the first render
+  const lastBackedUpRef = useRef<string | null>(null);
 
   const [showRedirectOption, setShowRedirectOption] = useState(false);
 
@@ -60,30 +62,39 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
         });
     }
 
+    loadGoogleScript();
+  }, []);
+
+  const loadGoogleScript = () => {
+    setGisError(false);
     initGoogleDrive()
       .then(() => setGisLoaded(true))
-      .catch(() => {});
-  }, []);
+      .catch(() => setGisError(true));
+  };
 
+  // Auto-backup when the transactions differ from what is on Drive: not on page
+  // load, not when only the connection or the option changes
   useEffect(() => {
-    setConnected(isSignedIn());
-  }, []);
-
-  // Auto-backup when the transactions change, not when the connection or the option
-  // does (that would upload whatever is local, e.g. nothing on a new device)
-  useEffect(() => {
-    const signature = JSON.stringify(transactions);
-    const changed = lastSeenRef.current !== null && signature !== lastSeenRef.current;
-    lastSeenRef.current = signature;
-    if (!changed || !settings.autoBackup || !connected) return;
-
-    if (backupTimerRef.current) {
-      clearTimeout(backupTimerRef.current);
+    const signature = transactionsSignature(transactions);
+    if (lastBackedUpRef.current === null) {
+      lastBackedUpRef.current = signature;
+      return;
+    }
+    if (
+      !shouldScheduleBackup({
+        signature,
+        lastBackedUp: lastBackedUpRef.current,
+        autoBackup: settings.autoBackup,
+        connected,
+      })
+    ) {
+      return;
     }
 
-    backupTimerRef.current = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const result = await attemptBackup();
       if (result.ok) {
+        lastBackedUpRef.current = signature;
         setLastBackup(result.date);
         setAutoBackupError('');
       } else {
@@ -93,11 +104,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       }
     }, AUTO_BACKUP_DEBOUNCE_MS);
 
-    return () => {
-      if (backupTimerRef.current) {
-        clearTimeout(backupTimerRef.current);
-      }
-    };
+    return () => clearTimeout(timer);
   }, [transactions, settings.autoBackup, connected]);
 
   const handleConnect = async (useRedirect = false) => {
@@ -112,6 +119,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     try {
       await signIn(effectiveClientId, useRedirect);
       setConnected(true);
+      setAutoBackupError('');
       setSuccess('Connecté à Google Drive');
       const info = await getBackupInfo();
       if (info) {
@@ -131,6 +139,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const handleDisconnect = () => {
     signOut();
     setConnected(false);
+    setAutoBackupError('');
     setSuccess('');
     setError('');
     setSettings(updateGDriveSettings({ autoBackup: false }));
@@ -141,7 +150,22 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     setError('');
     setSuccess('');
     try {
-      const date = await backupToDrive();
+      let date: string;
+      try {
+        date = await backupToDrive();
+      } catch (err) {
+        if (!(err instanceof BackupConflictError)) throw err;
+        const overwrite = window.confirm(
+          `${err.message}\n\nÉcraser quand même la sauvegarde Google Drive par les données de cet appareil ?`
+        );
+        if (!overwrite) {
+          setError(err.message);
+          return;
+        }
+        date = await backupToDrive({ force: true });
+      }
+      lastBackedUpRef.current = transactionsSignature(transactions);
+      setAutoBackupError('');
       setLastBackup(date);
       setSuccess('Sauvegarde effectuée avec succès');
     } catch (err) {
@@ -162,6 +186,9 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     try {
       const { transactions: restored, skipped } = await restoreFromDrive();
       saveTransactions(restored);
+      // What was just restored is what is on Drive: no backup is due for it
+      lastBackedUpRef.current = transactionsSignature(restored);
+      setAutoBackupError('');
       onRestore();
       setSuccess(
         `${restored.length} transactions restaurées` +
@@ -301,6 +328,14 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
                     {connected ? 'Connecté à Google Drive' : 'Non connecté'}
                   </span>
                 </div>
+                {!gisLoaded && gisError && (
+                  <button
+                    onClick={loadGoogleScript}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50"
+                  >
+                    Google indisponible, réessayer
+                  </button>
+                )}
                 {gisLoaded && (
                   <button
                     onClick={connected ? handleDisconnect : () => handleConnect()}
