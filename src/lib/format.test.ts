@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatPrice, restoredMessage, timePositions } from './format';
+import { formatPrice, restoreWarning, restoredMessage, timePositions } from './format';
 
 describe('formatPrice', () => {
   it('keeps two decimals for ordinary prices', () => {
@@ -39,5 +39,21 @@ describe('timePositions', () => {
   });
   it('puts a single point at the start', () => {
     expect(timePositions([5])).toEqual([0]);
+  });
+});
+
+describe('restoreWarning', () => {
+  it('stays silent when the restore does not remove the whole list', () => {
+    expect(restoreWarning(3, 5)).toBeNull();
+    expect(restoreWarning(0, 0)).toBeNull();
+    expect(restoreWarning(0, 4)).toBeNull();
+  });
+  it('warns, with the numbers, when an empty backup would erase the local list', () => {
+    const message = restoreWarning(3, 0) as string;
+    expect(message).toContain('3 transactions');
+    expect(message).toMatch(/vide/);
+  });
+  it('speaks of one transaction in the singular', () => {
+    expect(restoreWarning(1, 0)).toContain('1 transaction ');
   });
 });

@@ -736,6 +736,26 @@ describe('Google errors are told in French', () => {
     await expect(drive.backupToDrive()).rejects.toThrow(/Connexion à Google Drive impossible/);
   });
 
+  it('tells a full Drive from a refused access', async () => {
+    signInWithStoredToken();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { errors: [{ reason: 'storageQuotaExceeded' }] } }),
+    });
+    await expect(drive.backupToDrive()).rejects.toThrow(/espace.*plein/);
+  });
+
+  it('tells a rate limit from a refused access', async () => {
+    signInWithStoredToken();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } }),
+    });
+    await expect(drive.backupToDrive()).rejects.toThrow(/Trop de requêtes/);
+  });
+
   it('explains a refused access', async () => {
     signInWithStoredToken();
     fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });

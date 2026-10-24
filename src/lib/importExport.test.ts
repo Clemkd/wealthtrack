@@ -197,3 +197,15 @@ describe('exportFileName', () => {
     expect(exportFileName(new Date('2026-01-02T03:00:00.000Z'))).toBe('wealthtrack_export_2026-01-01.zip');
   });
 });
+
+describe('readImportZip with a damaged entry', () => {
+  it('tells the user in French', async () => {
+    const zip = new JSZip();
+    zip.file('transactions.csv', 'a'.repeat(5000), { compression: 'DEFLATE' });
+    const bytes = await zip.generateAsync({ type: 'uint8array' });
+    // Alter the start of the compressed data (30 bytes of header + the file name), so that
+    // the archive opens but the entry cannot be unpacked
+    for (let i = 46; i < 50; i++) bytes[i] = bytes[i] ^ 0xff;
+    await expect(readImportZip(bytes)).rejects.toThrow(/endommagé/);
+  });
+});

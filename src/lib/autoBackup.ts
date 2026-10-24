@@ -29,3 +29,18 @@ export interface AutoBackupState {
 export function shouldScheduleBackup(state: AutoBackupState): boolean {
   return state.signature !== state.lastBackedUp && state.autoBackup && state.connected;
 }
+
+// How the Drive button looks. An automatic backup that is switched on but whose session
+// is not connected (the token does not outlive the browser session) protects nothing:
+// it must not look like "never set up".
+export function driveButtonState(state: { autoBackup: boolean; connected: boolean; error: string }): {
+  tone: 'error' | 'warning' | 'connected' | 'idle';
+  title: string;
+} {
+  if (state.error) return { tone: 'error', title: `Sauvegarde automatique en échec : ${state.error}` };
+  if (state.autoBackup && !state.connected) {
+    return { tone: 'warning', title: 'Sauvegarde automatique inactive : reconnectez-vous à Google Drive' };
+  }
+  if (state.connected) return { tone: 'connected', title: 'Sauvegarde Google Drive' };
+  return { tone: 'idle', title: 'Sauvegarde Google Drive' };
+}

@@ -56,7 +56,7 @@ export function transactionsToCsv(transactions: Transaction[]): string {
       tx.created_at,
       tx.updated_at,
     ]
-      .map(escapeCsvField)
+      .map((field) => escapeCsvField(field))
       .join(',')
   );
   return [CSV_HEADERS.join(','), ...rows].join('\n');
@@ -129,7 +129,12 @@ export async function readImportZip(file: Blob | ArrayBuffer | Uint8Array): Prom
   }
 
   // A leading byte order mark is removed with the header trimming
-  const csvContent = await csvFile.async('string');
+  let csvContent: string;
+  try {
+    csvContent = await csvFile.async('string');
+  } catch {
+    throw new Error(`Le fichier ${CSV_FILENAME} de l'archive est endommagé.`);
+  }
 
   const result = csvToTransactions(csvContent);
   if (result.transactions.length === 0) {

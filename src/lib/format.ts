@@ -24,3 +24,12 @@ export function timePositions(times: number[]): number[] {
   if (span === 0) return times.map((_, i) => i / (times.length - 1));
   return times.map((t) => (t - first) / span);
 }
+
+// Warning before a restore that would leave this device without any transaction.
+export function restoreWarning(localCount: number, backupCount: number): string | null {
+  if (backupCount > 0 || localCount === 0) return null;
+  return (
+    `La sauvegarde Google Drive est vide : la restaurer supprimera les ${localCount} ` +
+    `transaction${localCount > 1 ? 's' : ''} de cet appareil. Continuer ?`
+  );
+}

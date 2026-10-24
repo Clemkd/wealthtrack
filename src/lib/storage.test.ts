@@ -9,6 +9,7 @@ import {
   getUnreadableDataCopy,
   hasUnreadableData,
   isListDurable,
+  onListDurable,
   isStorageUnavailable,
   resetStorageState,
   saveTransactions,
@@ -462,5 +463,37 @@ describe('degraded storage never costs the user data that is on disk', () => {
     expect(isListDurable()).toBe(true);
     expect(JSON.parse(roomy.data.get(CORRUPT_KEY) as string)).toEqual([raw]);
     expect(JSON.parse(roomy.data.get(KEY) as string).map((t: { id: string }) => t.id)).toContain(added.id);
+  });
+
+  it('reports the copy as saved as soon as a read manages to save it', () => {
+    const { data, api } = limited(1500);
+    vi.stubGlobal('localStorage', api);
+    const raw = JSON.stringify([tx({ id: 'v0' }), tx({ id: 'v1' }), tx({ id: 'v2' }), 'x'.repeat(200)]);
+    data.set(KEY, raw);
+    getTransactions();
+    expect(unreadableCopyStatus()).toBe('unsaved');
+
+    const roomy = limited(100000);
+    roomy.data.set(KEY, raw);
+    vi.stubGlobal('localStorage', roomy.api);
+    const seen: boolean[] = [];
+    onListDurable(() => seen.push(isListDurable()));
+    getTransactions();
+    expect(unreadableCopyStatus()).toBe('saved');
+    expect(isListDurable()).toBe(true);
+    expect(seen).toEqual([true]);
+  });
+
+  it('tells what depends on the list that it is saved again after the user gives the copy up', () => {
+    const { data, api } = limited(1500);
+    vi.stubGlobal('localStorage', api);
+    const raw = JSON.stringify([tx({ id: 'v0' }), tx({ id: 'v1' }), tx({ id: 'v2' }), { junk: 'x'.repeat(100), amount: 'abc' }]);
+    data.set(KEY, raw);
+    getTransactions();
+    const seen: boolean[] = [];
+    onListDurable(() => seen.push(isListDurable()));
+    acknowledgeUnreadableData();
+    expect(seen).toEqual([true]);
+    expect(isListDurable()).toBe(true);
   });
 });

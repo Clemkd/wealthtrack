@@ -309,6 +309,17 @@ export function signOut(): void {
 
 // --- Drive API Helpers ---
 
+// The reason Google gives with a refusal ('' when the body says nothing usable)
+async function errorReason(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: { errors?: Array<{ reason?: unknown }> } };
+    const reason = body?.error?.errors?.[0]?.reason;
+    return typeof reason === 'string' ? reason : '';
+  } catch {
+    return '';
+  }
+}
+
 async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   if (!accessToken) throw new Error('Non connecté à Google Drive');
 
@@ -340,6 +351,13 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
       throw new Error('Session expirée. Veuillez vous reconnecter.');
     }
     if (response.status === 403) {
+      const reason = await errorReason(response);
+      if (reason === 'storageQuotaExceeded') {
+        throw new Error("L'espace de stockage de votre compte Google est plein : libérez de la place puis réessayez.");
+      }
+      if (/rateLimitExceeded|dailyLimitExceeded/i.test(reason)) {
+        throw new Error('Trop de requêtes vers Google Drive : réessayez dans quelques minutes.');
+      }
       throw new Error(
         "Google Drive a refusé l'accès (403) : vérifiez que l'autorisation d'accès à Drive est accordée et que l'API Google Drive est activée pour ce Client ID."
       );

@@ -4,9 +4,9 @@ import { Transaction } from '../types/database';
 import AutoBackupSwitch from './AutoBackupSwitch';
 import Dialog from './Dialog';
 import Notice from './Notice';
-import { shouldScheduleBackup, signatureHash, transactionsSignature } from '../lib/autoBackup';
+import { driveButtonState, shouldScheduleBackup, signatureHash, transactionsSignature } from '../lib/autoBackup';
 import { saveTransactions } from '../lib/storage';
-import { restoredMessage } from '../lib/format';
+import { restoredMessage, restoreWarning } from '../lib/format';
 import {
   initGoogleDrive,
   areSettingsSaved,
@@ -185,6 +185,11 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
         date = await backupToDrive();
       } catch (err) {
         if (!(err instanceof BackupConflictError)) throw err;
+        // An empty list can never replace a backup: no point offering it
+        if (transactions.length === 0) {
+          setError(err.message);
+          return;
+        }
         const overwrite = window.confirm(
           `${err.message}\n\nÉcraser quand même la sauvegarde Google Drive par les ${transactions.length} transaction(s) de cet appareil ?`
         );
@@ -218,6 +223,12 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
     setSuccess('');
     try {
       const { transactions: restored, skipped, modifiedTime } = await restoreFromDrive();
+      // An empty backup would erase the whole local list: say so before doing it
+      const warning = restoreWarning(transactions.length, restored.length);
+      if (warning && !window.confirm(warning)) {
+        setError('Restauration annulée : vos données locales sont conservées.');
+        return;
+      }
       const saved = saveTransactions(restored);
       // Only now that it is saved locally is this device in sync with that file, and
       // what was just restored is what is on Drive: no backup is due for it
@@ -257,23 +268,22 @@ export default function GoogleDriveBackup({ transactions, onRestore, initiallyOp
     );
   };
 
+  const button = driveButtonState({ autoBackup: settings.autoBackup, connected, error: autoBackupError });
+
   return (
     <>
       <button
         onClick={() => setShowPanel(true)}
         className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border font-semibold rounded-lg transition-colors ${
-          autoBackupError
-            ? 'border-red-300 text-red-700 hover:bg-red-50'
-            : connected
-              ? 'border-green-300 text-green-700 hover:bg-green-50'
-              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+          {
+            error: 'border-red-300 text-red-700 hover:bg-red-50',
+            warning: 'border-amber-300 text-amber-800 hover:bg-amber-50',
+            connected: 'border-green-300 text-green-700 hover:bg-green-50',
+            idle: 'border-gray-300 text-gray-700 hover:bg-gray-50',
+          }[button.tone]
         }`}
-        title={
-          autoBackupError
-            ? `Sauvegarde automatique en échec : ${autoBackupError}`
-            : 'Sauvegarde Google Drive'
-        }
-        aria-label="Sauvegarde Google Drive"
+        title={button.title}
+        aria-label={button.title}
       >
         {connected ? <Cloud aria-hidden="true" className="w-5 h-5" /> : <CloudOff aria-hidden="true" className="w-5 h-5" />}
         <span className="hidden lg:inline">Drive</span>

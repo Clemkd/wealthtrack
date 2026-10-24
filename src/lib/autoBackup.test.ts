@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Transaction } from '../types/database';
-import { shouldScheduleBackup, signatureHash, transactionsSignature } from './autoBackup';
+import { driveButtonState, shouldScheduleBackup, signatureHash, transactionsSignature } from './autoBackup';
 
 const tx = (id: string, amount = 1): Transaction => ({
   id,
@@ -66,5 +66,28 @@ describe('signatureHash', () => {
     expect(signatureHash('abc')).toBe(signatureHash('abc'));
     expect(signatureHash('abc')).not.toBe(signatureHash('abd'));
     expect(signatureHash('x'.repeat(100000))).toMatch(/^[0-9a-f]{1,8}$/);
+  });
+});
+
+describe('driveButtonState', () => {
+  it('shows a failure first', () => {
+    expect(driveButtonState({ autoBackup: true, connected: true, error: 'boom' })).toEqual({
+      tone: 'error',
+      title: 'Sauvegarde automatique en échec : boom',
+    });
+  });
+
+  it('warns when the automatic backup is on but the session is not connected', () => {
+    const state = driveButtonState({ autoBackup: true, connected: false, error: '' });
+    expect(state.tone).toBe('warning');
+    expect(state.title).toMatch(/inactive/);
+  });
+
+  it('is green when connected and neutral when never set up', () => {
+    expect(driveButtonState({ autoBackup: false, connected: true, error: '' }).tone).toBe('connected');
+    expect(driveButtonState({ autoBackup: false, connected: false, error: '' })).toEqual({
+      tone: 'idle',
+      title: 'Sauvegarde Google Drive',
+    });
   });
 });

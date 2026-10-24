@@ -536,7 +536,7 @@ describe('taxReportToCsv', () => {
 
   it('writes the same estimated tax as the screen computes', () => {
     const base = { year: 2026, totalBuys: 0, totalSells: 1000, capitalGains: 500.15, capitalLosses: 0, netGain: 500.15, transactions: [] };
-    expect(taxReportToCsv(base)).toContain('Impôt estimé (PFU 30%),150.05 €');
+    expect(taxReportToCsv(base)).toContain('Impôt estimé (PFU 30%);150,05 €');
   });
 
   it('escapes notes with commas, quotes and formulas', () => {
@@ -547,7 +547,7 @@ describe('taxReportToCsv', () => {
 
   it('shows the received quantity of a swap', () => {
     const csv = taxReportToCsv(data([tx({ transaction_type: 'swap', currency_from: 'SOL', currency_to: 'USDC', amount: 0.022, amount_to: 5.2, ...at('2026-01-01') })]));
-    expect(csv).toContain('SOL → USDC,0.022,5.2');
+    expect(csv).toContain('SOL → USDC;0,022;5,2');
   });
 
   it('does not claim an exemption applies when there is no sale', () => {
@@ -566,7 +566,7 @@ describe('taxReportToCsv', () => {
       tx({ amount: 1, total_value: 10000, price_per_unit: 10000, ...at('2026-01-01') }),
       tx({ transaction_type: 'sell', amount: 0.5, total_value: 2500, price_per_unit: 5000, ...at('2026-02-01') }),
     ];
-    expect(taxReportToCsv(data(list))).toContain('Plus-value nette,-2500.00 €');
+    expect(taxReportToCsv(data(list))).toContain('Plus-value nette;-2500,00 €');
   });
 });
 
@@ -600,8 +600,31 @@ describe('computeTax when more is sold than the recorded holdings', () => {
 describe('taxReportToCsv type labels', () => {
   it('writes the transaction types in French', () => {
     const csv = taxReportToCsv(computeTax([tx(at('2026-01-01')), tx({ transaction_type: 'sell', total_value: 10, ...at('2026-01-02') })], 2026));
-    expect(csv).toContain(',Achat,');
-    expect(csv).toContain(',Vente,');
-    expect(csv).not.toMatch(/,(buy|sell|swap),/);
+    expect(csv).toContain(';Achat;');
+    expect(csv).toContain(';Vente;');
+    expect(csv).not.toMatch(/;(buy|sell|swap);/);
+  });
+});
+
+describe('taxReportToCsv for a French spreadsheet', () => {
+  const csvOf = (list: Transaction[]) => taxReportToCsv(computeTax(list, 2026));
+
+  it('separates fields with semicolons and writes decimals with a comma', () => {
+    const csv = csvOf([tx({ amount: 0.3, price_per_unit: 100.5, total_value: 30.15, ...at('2026-01-01') })]);
+    const row = csv.split('\n').find((line) => line.includes(';Achat;')) as string;
+    expect(row.split(';').slice(3, 7)).toEqual(['0,3', '', '100,5', '30,15']);
+  });
+
+  it('rounds amounts to the cent so that the detail matches the summary', () => {
+    const csv = csvOf([tx({ transaction_type: 'sell', amount: 0.3, total_value: 300.00000000000006, price_per_unit: 1000.0000000000001, ...at('2026-01-01') })]);
+    const row = csv.split('\n').find((line) => line.includes(';Vente;')) as string;
+    expect(row).toContain(';300,00;');
+    expect(row).toContain(';1000;');
+    expect(row).not.toContain('00000000006');
+  });
+
+  it('keeps a text that contains a semicolon in one field', () => {
+    const csv = csvOf([tx({ notes: 'a;b', ...at('2026-01-01') })]);
+    expect(csv).toContain('"a;b"');
   });
 });

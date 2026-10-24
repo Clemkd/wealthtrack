@@ -187,7 +187,16 @@ const TYPE_LABELS: Record<string, string> = { buy: 'Achat', sell: 'Vente', swap:
 
 export function taxReportToCsv(data: TaxData): string {
   const { isExempt, estimatedTax } = estimateTax(data);
-  const eur = (value: number) => `${value.toFixed(2)} €`;
+  // A French spreadsheet expects ';' between fields and ',' in numbers, otherwise every
+  // row lands in the first column and the amounts stay text
+  const comma = (text: string) => text.replace('.', ',');
+  const eur = (value: number) => `${comma(value.toFixed(2))} €`;
+  // Whole cents for values in euros, up to 8 decimals for unit prices, the quantity as
+  // it is (without an exponent)
+  const cents = (value: number | null) => (value === null ? '' : comma(value.toFixed(2)));
+  const unit = (value: number | null) => (value === null ? '' : comma(String(Number(value.toFixed(8)))));
+  const quantity = (value: number) =>
+    comma(/e/i.test(String(value)) ? value.toFixed(18).replace(/\.?0+$/, '') : String(value));
   const exemption =
     data.totalSells === 0
       ? 'Sans objet (aucune cession)'
@@ -197,8 +206,8 @@ export function taxReportToCsv(data: TaxData): string {
 
   // App generated cells are only quoted; user data (currencies, notes) is also
   // protected against spreadsheet formulas.
-  const q = (value: string | number) => quoteCsvField(String(value));
-  const u = escapeCsvField;
+  const q = (value: string | number) => quoteCsvField(String(value), ';');
+  const u = (value: string | number) => escapeCsvField(value, ';');
 
   const rows: string[][] = [
     [q('Rapport Fiscal'), q(data.year)],
@@ -233,15 +242,15 @@ export function taxReportToCsv(data: TaxData): string {
       tx.transaction_type === 'swap'
         ? u(`${tx.currency_from} → ${tx.currency_to}`)
         : u(tx.currency_to),
-      q(tx.amount),
-      q(tx.transaction_type === 'swap' ? getReceivedAmount(tx) : ''),
-      q(tx.price_per_unit),
-      q(tx.total_value),
-      q(tx.price_per_unit_usd ?? ''),
-      q(tx.total_value_usd ?? ''),
+      q(quantity(tx.amount)),
+      q(tx.transaction_type === 'swap' ? quantity(getReceivedAmount(tx)) : ''),
+      q(unit(tx.price_per_unit)),
+      q(cents(tx.total_value)),
+      q(unit(tx.price_per_unit_usd)),
+      q(cents(tx.total_value_usd)),
       u(tx.notes),
     ]),
   ];
 
-  return rows.map((row) => row.join(',')).join('\n');
+  return rows.map((row) => row.join(';')).join('\n');
 }

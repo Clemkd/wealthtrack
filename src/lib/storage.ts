@@ -90,14 +90,32 @@ export function clearUnreadableData(): void {
 // raw copies are released.
 export function acknowledgeUnreadableData(): void {
   const transactions = getTransactions();
+  const wasDurable = isListDurable();
   // The user accepts to lose what could not be kept
   pendingRaw = null;
   readBlocked = false;
-  saveTransactions(transactions);
+  const saved = writeTransactions(transactions);
   clearUnreadableData();
+  if (saved && !wasDurable) notifyListDurable();
 }
 
 export function getTransactions(): Transaction[] {
+  const wasDurable = isListDurable();
+  const transactions = readTransactions();
+  // Reading can settle what was pending (the copy of the rejected lines got saved)
+  if (!wasDurable && isListDurable()) notifyListDurable();
+  return transactions;
+}
+
+// Marks the rejected raw content as safely set aside, or as pending when it is not
+function secure(raw: string): boolean {
+  const safe = backUpUnreadableData(raw);
+  if (!safe) pendingRaw = raw;
+  else if (pendingRaw === raw) pendingRaw = null;
+  return safe;
+}
+
+function readTransactions(): Transaction[] {
   const { value: raw, failed } = safeLocal.read(STORAGE_KEY);
   if (failed) {
     readBlocked = true;
@@ -109,12 +127,12 @@ export function getTransactions(): Transaction[] {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    if (!backUpUnreadableData(raw)) pendingRaw = raw;
+    secure(raw);
     return [];
   }
 
   if (!Array.isArray(parsed)) {
-    if (!backUpUnreadableData(raw)) pendingRaw = raw;
+    secure(raw);
     return [];
   }
 
@@ -124,8 +142,7 @@ export function getTransactions(): Transaction[] {
     .map((el, index) => normalizeTransaction(el, `legacy-${index + 1}`))
     .filter((tx): tx is Transaction => tx !== null);
   const droppedSome = normalized.length !== parsed.length;
-  const droppedLinesAreSafe = droppedSome ? backUpUnreadableData(raw) : true;
-  if (!droppedLinesAreSafe) pendingRaw = raw;
+  const droppedLinesAreSafe = droppedSome ? secure(raw) : true;
 
   // Ids that were missing or duplicated are fixed once and persisted, so that edit
   // and delete find the transaction that is displayed. The stored list is only
@@ -150,8 +167,12 @@ export function onListDurable(listener: () => void): void {
 export function saveTransactions(transactions: Transaction[]): boolean {
   const wasDurable = isListDurable();
   const saved = writeTransactions(transactions);
-  if (saved && !wasDurable) durableListeners.forEach((listener) => listener());
+  if (saved && !wasDurable) notifyListDurable();
   return saved;
+}
+
+function notifyListDurable(): void {
+  durableListeners.forEach((listener) => listener());
 }
 
 function writeTransactions(transactions: Transaction[]): boolean {
