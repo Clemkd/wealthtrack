@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { addTransaction, updateTransaction } from '../lib/storage';
 import { Transaction, TransactionType, getReceivedAmount } from '../types/database';
 import { getEurToUsdRate } from '../lib/exchangeRate';
-import { computePricing } from '../lib/pricing';
-import { validateTransactionInput } from '../lib/transactions';
+import { buildTransactionData } from '../lib/transactionForm';
 import { X, Plus, Save } from 'lucide-react';
 
 type PriceCurrency = 'EUR' | 'USD';
@@ -77,38 +76,22 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
     setLoading(true);
 
     try {
-      const amountNum = parseFloat(amount);
-      const priceNum = parseFloat(pricePerUnit);
-      const amountToNum = parseFloat(amountTo);
-      const date = new Date(transactionDate);
-
-      const problem = validateTransactionInput({
-        type: transactionType,
-        currencyFrom,
-        currencyTo,
-        amount: amountNum,
-        amountTo: amountToNum,
-        price: priceNum,
-      });
-      if (problem) throw new Error(problem);
-      if (Number.isNaN(date.getTime())) throw new Error('La date de la transaction est invalide.');
-
-      const pricing = await computePricing(
-        { amount: amountNum, price: priceNum, priceCurrency, date, existing: transaction },
-        getEurToUsdRate
+      const data = await buildTransactionData(
+        {
+          type: transactionType,
+          currencyFrom,
+          currencyTo,
+          amount,
+          amountTo,
+          pricePerUnit,
+          priceCurrency,
+          transactionDate,
+          notes,
+        },
+        getEurToUsdRate,
+        transaction
       );
       if (!mounted.current) return;
-
-      const data = {
-        transaction_type: transactionType,
-        currency_from: transactionType === 'swap' ? currencyFrom : null,
-        currency_to: currencyTo,
-        amount: amountNum,
-        amount_to: transactionType === 'swap' ? amountToNum : null,
-        ...pricing,
-        transaction_date: date.toISOString(),
-        notes: notes,
-      };
 
       if (transaction) {
         updateTransaction(transaction.id, data);

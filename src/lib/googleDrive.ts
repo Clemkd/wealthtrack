@@ -73,13 +73,21 @@ export function restoreSession(): boolean {
 // --- Settings ---
 
 export function getGDriveSettings(): GDriveSettings {
-  const defaults: GDriveSettings = { autoBackup: false, lastBackupDate: null, clientId: '' };
+  const settings: GDriveSettings = { autoBackup: false, lastBackupDate: null, clientId: '' };
   const raw = localStorage.getItem(SETTINGS_KEY);
-  if (!raw) return defaults;
+  if (!raw) return settings;
   try {
-    return JSON.parse(raw) as GDriveSettings;
+    const data: unknown = JSON.parse(raw);
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) return settings;
+    const stored = data as Record<string, unknown>;
+    return {
+      autoBackup: typeof stored.autoBackup === 'boolean' ? stored.autoBackup : settings.autoBackup,
+      lastBackupDate:
+        typeof stored.lastBackupDate === 'string' ? stored.lastBackupDate : settings.lastBackupDate,
+      clientId: typeof stored.clientId === 'string' ? stored.clientId : settings.clientId,
+    };
   } catch {
-    return defaults;
+    return settings;
   }
 }
 
@@ -87,22 +95,39 @@ export function saveGDriveSettings(settings: GDriveSettings): void {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
+// Applies a change on top of what is stored now, not on a copy that may predate a
+// backup which recorded its date in the meantime.
+export function updateGDriveSettings(changes: Partial<GDriveSettings>): GDriveSettings {
+  const merged = { ...getGDriveSettings(), ...changes };
+  saveGDriveSettings(merged);
+  return merged;
+}
+
 // --- Script Loading ---
 
+const scriptLoads = new Map<string, Promise<void>>();
+
+// One load per script: a second caller waits for the first one, and a failed load
+// is forgotten (its tag removed) so that it can be retried.
 function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      resolve();
-      return;
-    }
+  const pending = scriptLoads.get(src);
+  if (pending) return pending;
+
+  const load = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
     script.src = src;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Impossible de charger ${src}`));
+    script.onerror = () => {
+      script.remove();
+      scriptLoads.delete(src);
+      reject(new Error(`Impossible de charger ${src}`));
+    };
     document.head.appendChild(script);
   });
+  scriptLoads.set(src, load);
+  return load;
 }
 
 export async function initGoogleDrive(): Promise<void> {
@@ -129,12 +154,15 @@ export function handleRedirectResponse(): boolean {
 
   const params = new URLSearchParams(hash.substring(1));
   const token = params.get('access_token');
-  if (!token) return false;
+  // A refusal (#error=...) is cleaned up like an answer carrying a token
+  if (!token && !params.get('error')) return false;
 
   const expectedState = sessionStorage.getItem(STATE_KEY);
   sessionStorage.removeItem(STATE_KEY);
   // The token never stays in the address bar, whether it is accepted or not
   window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  if (!token) return false;
 
   const expiresIn = parseInt(params.get('expires_in') ?? '', 10);
   if (!expectedState || params.get('state') !== expectedState || !Number.isFinite(expiresIn)) {
@@ -287,22 +315,46 @@ async function readBackupFile(fileId: string): Promise<string> {
 
 // --- Public API ---
 
-export async function backupToDrive(): Promise<string> {
-  const transactions = getTransactions();
-  const content = JSON.stringify({
-    transactions,
-    exportedAt: new Date().toISOString(),
-  });
+async function remoteBackupHasTransactions(fileId: string): Promise<boolean> {
+  try {
+    const data: unknown = JSON.parse(await readBackupFile(fileId));
+    const list = (data as { transactions?: unknown } | null)?.transactions;
+    return Array.isArray(list) && list.length > 0;
+  } catch {
+    return false;
+  }
+}
 
+async function runBackup(): Promise<string> {
+  const transactions = getTransactions();
   const existing = await findBackupFile();
+
+  // An empty list (new device, unreadable local data) must never silently replace
+  // a backup that holds the real data
+  if (transactions.length === 0 && existing && (await remoteBackupHasTransactions(existing.id))) {
+    throw new Error(
+      'Sauvegarde annulée : aucune transaction locale alors que la sauvegarde Google Drive en contient. Restaurez-la d\'abord.'
+    );
+  }
+
+  const content = JSON.stringify({ transactions, exportedAt: new Date().toISOString() });
   const file = existing
     ? await updateBackupFile(existing.id, content)
     : await createBackupFile(content);
 
   const now = file.modifiedTime ?? new Date().toISOString();
-  const settings = getGDriveSettings();
-  saveGDriveSettings({ ...settings, lastBackupDate: now });
+  updateGDriveSettings({ lastBackupDate: now });
   return now;
+}
+
+let backupQueue: Promise<unknown> = Promise.resolve();
+
+// Backups run one after the other: two at once could create two files, or let an
+// older state finish last and overwrite a newer one.
+export function backupToDrive(): Promise<string> {
+  const result = backupQueue.then(runBackup, runBackup);
+  backupQueue = result.catch(() => undefined);
+  return result;
 }
 
 export interface RestoreResult {

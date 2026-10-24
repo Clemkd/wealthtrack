@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Cloud, CloudOff, X, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { Transaction } from '../types/database';
-import { saveTransactions } from '../lib/storage';
+import { getTransactions, saveTransactions } from '../lib/storage';
 import {
   initGoogleDrive,
   handleRedirectResponse,
@@ -14,7 +14,7 @@ import {
   restoreFromDrive,
   getBackupInfo,
   getGDriveSettings,
-  saveGDriveSettings,
+  updateGDriveSettings,
   GDriveSettings,
 } from '../lib/googleDrive';
 
@@ -27,7 +27,7 @@ interface GoogleDriveBackupProps {
 
 export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDriveBackupProps) {
   const [showPanel, setShowPanel] = useState(false);
-  const [settings, setSettings] = useState<GDriveSettings>(getGDriveSettings());
+  const [settings, setSettings] = useState<GDriveSettings>(() => getGDriveSettings());
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -36,7 +36,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const [lastBackup, setLastBackup] = useState<string | null>(settings.lastBackupDate);
   const [clientIdInput, setClientIdInput] = useState(settings.clientId);
   const [gisLoaded, setGisLoaded] = useState(false);
-  const mountedRef = useRef(false);
+  const lastSeenRef = useRef(JSON.stringify(getTransactions()));
   const backupTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [showRedirectOption, setShowRedirectOption] = useState(false);
@@ -45,22 +45,22 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
   const effectiveClientId = envClientId || settings.clientId;
 
   useEffect(() => {
+    // The answer of a redirect sign-in is handled (and removed from the address bar)
+    // whether or not the Google script manages to load
+    const restored = handleRedirectResponse() || restoreSession();
+    if (restored) {
+      setConnected(true);
+      getBackupInfo()
+        .then((info) => {
+          if (info) setLastBackup(info.modifiedTime);
+        })
+        .catch((err) => {
+          console.warn('Impossible de récupérer les infos de sauvegarde:', err);
+        });
+    }
+
     initGoogleDrive()
-      .then(() => {
-        setGisLoaded(true);
-        // Try redirect response first, then restore persisted session
-        const restored = handleRedirectResponse() || restoreSession();
-        if (restored) {
-          setConnected(true);
-          getBackupInfo()
-            .then((info) => {
-              if (info) setLastBackup(info.modifiedTime);
-            })
-            .catch((err) => {
-              console.warn('Impossible de récupérer les infos de sauvegarde:', err);
-            });
-        }
-      })
+      .then(() => setGisLoaded(true))
       .catch(() => {});
   }, []);
 
@@ -68,14 +68,13 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     setConnected(isSignedIn());
   }, []);
 
-  // Auto-backup on transaction changes
+  // Auto-backup when the transactions change, not when the connection or the option
+  // does (that would upload whatever is local, e.g. nothing on a new device)
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      return;
-    }
-
-    if (!settings.autoBackup || !connected) return;
+    const signature = JSON.stringify(transactions);
+    const changed = signature !== lastSeenRef.current;
+    lastSeenRef.current = signature;
+    if (!changed || !settings.autoBackup || !connected) return;
 
     if (backupTimerRef.current) {
       clearTimeout(backupTimerRef.current);
@@ -133,9 +132,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
     setConnected(false);
     setSuccess('');
     setError('');
-    const newSettings = { ...settings, autoBackup: false };
-    setSettings(newSettings);
-    saveGDriveSettings(newSettings);
+    setSettings(updateGDriveSettings({ autoBackup: false }));
   };
 
   const handleBackup = async () => {
@@ -148,6 +145,7 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       setSuccess('Sauvegarde effectuée avec succès');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde');
+      setConnected(isSignedIn());
     } finally {
       setLoading(false);
     }
@@ -170,21 +168,18 @@ export default function GoogleDriveBackup({ transactions, onRestore }: GoogleDri
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de la restauration');
+      setConnected(isSignedIn());
     } finally {
       setLoading(false);
     }
   };
 
   const handleToggleAutoBackup = () => {
-    const newSettings = { ...settings, autoBackup: !settings.autoBackup };
-    setSettings(newSettings);
-    saveGDriveSettings(newSettings);
+    setSettings(updateGDriveSettings({ autoBackup: !settings.autoBackup }));
   };
 
   const handleSaveClientId = () => {
-    const newSettings = { ...settings, clientId: clientIdInput };
-    setSettings(newSettings);
-    saveGDriveSettings(newSettings);
+    setSettings(updateGDriveSettings({ clientId: clientIdInput }));
     setSuccess('Client ID enregistré');
   };
 

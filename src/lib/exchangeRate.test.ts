@@ -69,6 +69,24 @@ describe('getEurToUsdRate', () => {
   });
 });
 
+describe('latest rate cache', () => {
+  it('is refreshed after one hour', async () => {
+    fetchMock.mockResolvedValueOnce(answer(1.1)).mockResolvedValueOnce(answer(1.2));
+    expect(await rates.getEurToUsdRate()).toBe(1.1);
+    vi.setSystemTime(new Date('2026-10-24T12:59:00Z'));
+    expect(await rates.getEurToUsdRate()).toBe(1.1);
+    vi.setSystemTime(new Date('2026-10-24T13:01:00Z'));
+    expect(await rates.getEurToUsdRate()).toBe(1.2);
+  });
+
+  it('falls back to the last known rate when the refresh fails', async () => {
+    fetchMock.mockResolvedValueOnce(answer(1.1)).mockRejectedValueOnce(new Error('network'));
+    await rates.getEurToUsdRate();
+    vi.setSystemTime(new Date('2026-10-24T14:00:00Z'));
+    expect(await rates.getEurToUsdRate()).toBe(1.1);
+  });
+});
+
 describe('getUsdToEurRate', () => {
   it('inverts the rate', async () => {
     fetchMock.mockResolvedValue(answer(2));
