@@ -98,6 +98,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       onClick={() => setEditing(transaction)}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="Modifier"
+                      aria-label="Modifier"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -105,6 +106,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       onClick={() => handleDelete(transaction.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Supprimer"
+                      aria-label="Supprimer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -127,7 +129,11 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Prix unitaire</span>
+                  <span className="text-gray-600">
+                    {transaction.transaction_type === 'swap'
+                      ? 'Prix unitaire (monnaie source)'
+                      : 'Prix unitaire'}
+                  </span>
                   <span className="text-gray-700">
                     {transaction.price_per_unit.toLocaleString('fr-FR', {
                       minimumFractionDigits: 2,
@@ -259,6 +265,9 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                     )}
                   </td>
                   <td className="px-6 py-4 text-right text-gray-700">
+                    {transaction.transaction_type === 'swap' && (
+                      <div className="text-xs text-gray-400">Prix unitaire (monnaie source)</div>
+                    )}
                     {transaction.price_per_unit.toLocaleString('fr-FR', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
@@ -308,6 +317,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       onClick={() => setEditing(transaction)}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="Modifier"
+                      aria-label="Modifier"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -315,6 +325,7 @@ export default function TransactionList({ transactions, onUpdate }: TransactionL
                       onClick={() => handleDelete(transaction.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Supprimer"
+                      aria-label="Supprimer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addTransaction, updateTransaction } from '../lib/storage';
 import { Transaction, TransactionType, getReceivedAmount } from '../types/database';
-import { getEurToUsdRate, getUsdToEurRate } from '../lib/exchangeRate';
+import { getEurToUsdRate } from '../lib/exchangeRate';
+import { computePricing } from '../lib/pricing';
+import { validateTransactionInput } from '../lib/transactions';
 import { X, Plus, Save } from 'lucide-react';
 
 type PriceCurrency = 'EUR' | 'USD';
@@ -52,6 +54,23 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
   );
   const [notes, setNotes] = useState(transaction?.notes ?? '');
 
+  // A rate request can outlive the form: nothing must be saved once it is closed
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onCancel]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -60,51 +79,34 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
     try {
       const amountNum = parseFloat(amount);
       const priceNum = parseFloat(pricePerUnit);
-      const totalInput = amountNum * priceNum;
+      const amountToNum = parseFloat(amountTo);
+      const date = new Date(transactionDate);
 
-      let priceEur: number;
-      let totalEur: number;
-      let priceUsd: number | null;
-      let totalUsd: number | null;
+      const problem = validateTransactionInput({
+        type: transactionType,
+        currencyFrom,
+        currencyTo,
+        amount: amountNum,
+        amountTo: amountToNum,
+        price: priceNum,
+      });
+      if (problem) throw new Error(problem);
+      if (Number.isNaN(date.getTime())) throw new Error('La date de la transaction est invalide.');
 
-      if (priceCurrency === 'USD') {
-        const usdToEur = await getUsdToEurRate();
-        if (!usdToEur) {
-          throw new Error('Impossible de récupérer le taux de change USD/EUR. Veuillez réessayer.');
-        }
-        priceEur = priceNum * usdToEur;
-        totalEur = totalInput * usdToEur;
-        priceUsd = priceNum;
-        totalUsd = totalInput;
-      } else if (
-        transaction &&
-        transaction.price_per_unit_usd != null &&
-        priceNum === transaction.price_per_unit
-      ) {
-        // Price untouched: keep the USD value recorded at the time of the transaction
-        priceEur = priceNum;
-        totalEur = totalInput;
-        priceUsd = transaction.price_per_unit_usd;
-        totalUsd = priceUsd * amountNum;
-      } else {
-        const eurToUsd = await getEurToUsdRate();
-        priceEur = priceNum;
-        totalEur = totalInput;
-        priceUsd = eurToUsd ? priceNum * eurToUsd : null;
-        totalUsd = eurToUsd ? totalInput * eurToUsd : null;
-      }
+      const pricing = await computePricing(
+        { amount: amountNum, price: priceNum, priceCurrency, date, existing: transaction },
+        getEurToUsdRate
+      );
+      if (!mounted.current) return;
 
       const data = {
         transaction_type: transactionType,
         currency_from: transactionType === 'swap' ? currencyFrom : null,
         currency_to: currencyTo,
         amount: amountNum,
-        amount_to: transactionType === 'swap' ? parseFloat(amountTo) : null,
-        price_per_unit: priceEur,
-        total_value: totalEur,
-        price_per_unit_usd: priceUsd,
-        total_value_usd: totalUsd,
-        transaction_date: new Date(transactionDate).toISOString(),
+        amount_to: transactionType === 'swap' ? amountToNum : null,
+        ...pricing,
+        transaction_date: date.toISOString(),
         notes: notes,
       };
 
@@ -124,13 +126,20 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transaction-form-title"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+      >
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center rounded-t-2xl">
-          <h2 className="text-2xl font-bold text-gray-900">
+          <h2 id="transaction-form-title" className="text-2xl font-bold text-gray-900">
             {isEditing ? 'Modifier la transaction' : 'Nouvelle transaction'}
           </h2>
           <button
+            type="button"
             onClick={onCancel}
+            aria-label="Fermer"
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
@@ -206,7 +215,8 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
               <input
                 id="amount"
                 type="number"
-                step="0.00000001"
+                step="any"
+                min="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 required
@@ -224,7 +234,8 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
                 <input
                   id="pricePerUnit"
                   type="number"
-                  step="0.01"
+                  step="any"
+                  min="0"
                   value={pricePerUnit}
                   onChange={(e) => setPricePerUnit(e.target.value)}
                   required
@@ -251,7 +262,8 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
               <input
                 id="amountTo"
                 type="number"
-                step="0.00000001"
+                step="any"
+                min="0"
                 value={amountTo}
                 onChange={(e) => setAmountTo(e.target.value)}
                 required
