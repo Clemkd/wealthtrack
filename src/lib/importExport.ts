@@ -1,6 +1,9 @@
 import JSZip from 'jszip';
-import { Transaction, TransactionType } from '../types/database';
-import { getTransactions, saveTransactions } from './storage';
+import { Transaction } from '../types/database';
+import { getTransactions } from './storage';
+import { detectDelimiter, escapeCsvField, parseCsv, unescapeCsvField } from './csv';
+import { downloadBlob } from './download';
+import { dedupeIds, normalizeTransaction } from './transactions';
 
 const CSV_FILENAME = 'transactions.csv';
 
@@ -21,135 +24,123 @@ const CSV_HEADERS = [
   'updated_at',
 ];
 
-function escapeCsvField(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
+const NUMBER_COLUMNS = [
+  'amount',
+  'amount_to',
+  'price_per_unit',
+  'total_value',
+  'price_per_unit_usd',
+  'total_value_usd',
+];
+
+export interface ImportResult {
+  transactions: Transaction[];
+  skipped: number;
 }
 
-function transactionsToCsv(transactions: Transaction[]): string {
+export function transactionsToCsv(transactions: Transaction[]): string {
   const rows = transactions.map((tx) =>
     [
       tx.id,
       tx.transaction_type,
       tx.currency_from ?? '',
       tx.currency_to,
-      tx.amount.toString(),
-      tx.amount_to?.toString() ?? '',
-      tx.price_per_unit.toString(),
-      tx.total_value.toString(),
-      tx.price_per_unit_usd?.toString() ?? '',
-      tx.total_value_usd?.toString() ?? '',
+      tx.amount,
+      tx.amount_to ?? '',
+      tx.price_per_unit,
+      tx.total_value,
+      tx.price_per_unit_usd ?? '',
+      tx.total_value_usd ?? '',
       tx.transaction_date,
       tx.notes ?? '',
       tx.created_at,
       tx.updated_at,
     ]
-      .map(escapeCsvField)
+      .map((field) => escapeCsvField(field))
       .join(',')
   );
   return [CSV_HEADERS.join(','), ...rows].join('\n');
 }
 
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
-  let current = '';
-  let inQuotes = false;
+// Invalid rows are skipped and counted rather than turned into bogus transactions.
+export function csvToTransactions(csv: string): ImportResult {
+  const [headerRow, ...dataRows] = parseCsv(csv);
+  if (!headerRow) return { transactions: [], skipped: 0 };
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (inQuotes) {
-      if (char === '"' && i + 1 < line.length && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else if (char === '"') {
-        inQuotes = false;
-      } else {
-        current += char;
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true;
-      } else if (char === ',') {
-        fields.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
+  const headers = headerRow.map((h) => h.trim());
+  // A semicolon separated file comes from a spreadsheet in a locale with decimal
+  // commas; in a comma separated one, "1,000" cannot be told from a thousand
+  const decimalComma = detectDelimiter(csv) === ';';
+  const parsed: Transaction[] = [];
+  let skipped = 0;
+
+  for (const fields of dataRows) {
+    const raw: Record<string, string> = {};
+    headers.forEach((name, i) => {
+      const value = fields[i] ?? '';
+      // Notes are kept as typed; every other column is trimmed
+      const text = unescapeCsvField(name === 'notes' ? value : value.trim());
+      raw[name] =
+        decimalComma && NUMBER_COLUMNS.includes(name) && /^[+-]?\d+,\d+(e[+-]?\d+)?$/i.test(text)
+          ? text.replace(',', '.')
+          : text;
+    });
+
+    const tx = normalizeTransaction(raw);
+    if (!tx) {
+      skipped++;
+      continue;
     }
+    parsed.push(tx);
   }
-  fields.push(current);
-  return fields;
+
+  return { transactions: dedupeIds(parsed).transactions, skipped };
 }
 
-function csvToTransactions(csv: string): Transaction[] {
-  const lines = csv.split('\n').filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return [];
-
-  const headers = parseCsvLine(lines[0]);
-  const idxMap = new Map<string, number>();
-  headers.forEach((h, i) => idxMap.set(h.trim(), i));
-
-  const validTypes: TransactionType[] = ['buy', 'sell', 'swap'];
-
-  return lines.slice(1).map((line) => {
-    const fields = parseCsvLine(line);
-    const get = (name: string) => {
-      const idx = idxMap.get(name);
-      return idx !== undefined ? fields[idx]?.trim() ?? '' : '';
-    };
-
-    const txType = get('transaction_type') as TransactionType;
-
-    return {
-      id: get('id') || crypto.randomUUID(),
-      transaction_type: validTypes.includes(txType) ? txType : 'buy',
-      currency_from: get('currency_from') || null,
-      currency_to: get('currency_to'),
-      amount: parseFloat(get('amount')) || 0,
-      amount_to: get('amount_to') ? parseFloat(get('amount_to')) : null,
-      price_per_unit: parseFloat(get('price_per_unit')) || 0,
-      total_value: parseFloat(get('total_value')) || 0,
-      price_per_unit_usd: get('price_per_unit_usd') ? parseFloat(get('price_per_unit_usd')) : null,
-      total_value_usd: get('total_value_usd') ? parseFloat(get('total_value_usd')) : null,
-      transaction_date: get('transaction_date'),
-      notes: get('notes'),
-      created_at: get('created_at') || new Date().toISOString(),
-      updated_at: get('updated_at') || new Date().toISOString(),
-    };
-  });
+// The date in the name is the user's calendar day, not the UTC one
+export function exportFileName(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `wealthtrack_export_${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}.zip`;
 }
 
 export async function exportToZip(): Promise<void> {
-  const transactions = getTransactions();
-  const csv = transactionsToCsv(transactions);
+  const csv = transactionsToCsv(getTransactions());
 
   const zip = new JSZip();
-  zip.file(CSV_FILENAME, '\ufeff' + csv);
+  zip.file(CSV_FILENAME, '﻿' + csv);
 
   const blob = await zip.generateAsync({ type: 'blob' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `wealthtrack_export_${new Date().toISOString().slice(0, 10)}.zip`;
-  link.click();
-  URL.revokeObjectURL(link.href);
+  downloadBlob(blob, exportFileName(new Date()));
 }
 
-export async function importFromZip(file: File): Promise<Transaction[]> {
-  const zip = await JSZip.loadAsync(file);
+// Reads an export archive without touching the stored data: the caller decides
+// whether to replace it.
+export async function readImportZip(file: Blob | ArrayBuffer | Uint8Array): Promise<ImportResult> {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(file);
+  } catch {
+    throw new Error("Ce fichier n'est pas une archive ZIP valide : choisissez un export WealthTrack.");
+  }
   const csvFile = zip.file(CSV_FILENAME);
 
   if (!csvFile) {
     throw new Error(`Le fichier ${CSV_FILENAME} est introuvable dans l'archive.`);
   }
 
-  let csvContent = await csvFile.async('string');
-  if (csvContent.charCodeAt(0) === 0xfeff) {
-    csvContent = csvContent.slice(1);
+  // A leading byte order mark is removed with the header trimming
+  let csvContent: string;
+  try {
+    csvContent = await csvFile.async('string');
+  } catch {
+    throw new Error(`Le fichier ${CSV_FILENAME} de l'archive est endommagé.`);
   }
 
-  const transactions = csvToTransactions(csvContent);
-  saveTransactions(transactions);
-  return transactions;
+  const result = csvToTransactions(csvContent);
+  if (result.transactions.length === 0) {
+    throw new Error(
+      "Aucune transaction valide dans ce fichier : l'import est annulé, vos données actuelles sont conservées."
+    );
+  }
+  return result;
 }

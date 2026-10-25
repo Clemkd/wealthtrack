@@ -1,5 +1,8 @@
 import { Transaction } from '../types/database';
-import { getTransactions } from './storage';
+import { getTransactions, getUnreadableDataCopy, isListDurable, onListDurable } from './storage';
+import { signatureHash } from './autoBackup';
+import { safeLocal, safeSession } from './safeStorage';
+import { dedupeIds, normalizeTransaction } from './transactions';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const DRIVE_API_BASE = 'https://www.googleapis.com';
@@ -8,11 +11,16 @@ const BACKUP_FILENAME = 'wealthtrack_backup.json';
 const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 const SETTINGS_KEY = 'wealthtrack_gdrive_settings';
 const TOKEN_KEY = 'wealthtrack_gdrive_token';
+const STATE_KEY = 'wealthtrack_gdrive_oauth_state';
 
 export interface GDriveSettings {
   autoBackup: boolean;
   lastBackupDate: string | null;
   clientId: string;
+  // Fingerprint of the transactions as of the last backup or restore
+  lastBackedUpHash: string | null;
+  // Fingerprint of the set aside unreadable data that a restore has made harmless
+  coveredUnreadableHash: string | null;
 }
 
 interface DriveFile {
@@ -32,19 +40,19 @@ let tokenExpiresAt = 0;
 
 function persistToken(): void {
   if (accessToken && tokenExpiresAt > Date.now()) {
-    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ accessToken, tokenExpiresAt }));
+    safeSession.setItem(TOKEN_KEY, JSON.stringify({ accessToken, tokenExpiresAt }));
   } else {
-    sessionStorage.removeItem(TOKEN_KEY);
+    safeSession.removeItem(TOKEN_KEY);
   }
 }
 
 function clearPersistedToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
+  safeSession.removeItem(TOKEN_KEY);
 }
 
 export function restoreSession(): boolean {
   if (accessToken && Date.now() < tokenExpiresAt) return true;
-  const raw = sessionStorage.getItem(TOKEN_KEY);
+  const raw = safeSession.getItem(TOKEN_KEY);
   if (!raw) return false;
   try {
     const data: unknown = JSON.parse(raw);
@@ -71,36 +79,89 @@ export function restoreSession(): boolean {
 // --- Settings ---
 
 export function getGDriveSettings(): GDriveSettings {
-  const defaults: GDriveSettings = { autoBackup: false, lastBackupDate: null, clientId: '' };
-  const raw = localStorage.getItem(SETTINGS_KEY);
-  if (!raw) return defaults;
+  const settings: GDriveSettings = {
+    autoBackup: false,
+    lastBackupDate: null,
+    clientId: '',
+    lastBackedUpHash: null,
+    coveredUnreadableHash: null,
+  };
+  const raw = safeLocal.getItem(SETTINGS_KEY);
+  if (!raw) return settings;
   try {
-    return JSON.parse(raw) as GDriveSettings;
+    const data: unknown = JSON.parse(raw);
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) return settings;
+    const stored = data as Record<string, unknown>;
+    return {
+      autoBackup: typeof stored.autoBackup === 'boolean' ? stored.autoBackup : settings.autoBackup,
+      lastBackupDate:
+        typeof stored.lastBackupDate === 'string' ? stored.lastBackupDate : settings.lastBackupDate,
+      clientId: typeof stored.clientId === 'string' ? stored.clientId : settings.clientId,
+      lastBackedUpHash:
+        typeof stored.lastBackedUpHash === 'string' ? stored.lastBackedUpHash : settings.lastBackedUpHash,
+      coveredUnreadableHash:
+        typeof stored.coveredUnreadableHash === 'string'
+          ? stored.coveredUnreadableHash
+          : settings.coveredUnreadableHash,
+    };
   } catch {
-    return defaults;
+    return settings;
   }
 }
 
+// The synchronisation reference describes the list held on this device. While that
+// list only lives in this session, the reference does too: stored, it would say after
+// a reload that the old list on disk is in sync with Drive, and the next backup would
+// overwrite the newer remote file with it.
 export function saveGDriveSettings(settings: GDriveSettings): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  const text = JSON.stringify(settings);
+  if (isListDurable()) safeLocal.setItem(SETTINGS_KEY, text);
+  else safeLocal.setItemInMemory(SETTINGS_KEY, text);
+}
+
+// Whether the settings are saved on this device (they are kept in memory while the list is)
+export function areSettingsSaved(): boolean {
+  return !safeLocal.isInMemory(SETTINGS_KEY);
+}
+
+// Once the list is saved again, the reference that was held back goes to the disk with it
+onListDurable(() => {
+  if (safeLocal.isInMemory(SETTINGS_KEY)) saveGDriveSettings(getGDriveSettings());
+});
+
+// Applies a change on top of what is stored now, not on a copy that may predate a
+// backup which recorded its date in the meantime.
+export function updateGDriveSettings(changes: Partial<GDriveSettings>): GDriveSettings {
+  const merged = { ...getGDriveSettings(), ...changes };
+  saveGDriveSettings(merged);
+  return merged;
 }
 
 // --- Script Loading ---
 
+const scriptLoads = new Map<string, Promise<void>>();
+
+// One load per script: a second caller waits for the first one, and a failed load
+// is forgotten (its tag removed) so that it can be retried.
 function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      resolve();
-      return;
-    }
+  const pending = scriptLoads.get(src);
+  if (pending) return pending;
+
+  const load = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
     script.src = src;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Impossible de charger ${src}`));
+    script.onerror = () => {
+      script.remove();
+      scriptLoads.delete(src);
+      reject(new Error(`Impossible de charger ${src}`));
+    };
     document.head.appendChild(script);
   });
+  scriptLoads.set(src, load);
+  return load;
 }
 
 export async function initGoogleDrive(): Promise<void> {
@@ -113,27 +174,90 @@ export function isSignedIn(): boolean {
   return accessToken !== null && Date.now() < tokenExpiresAt;
 }
 
-export function handleRedirectResponse(): boolean {
+// A random value sent with the sign-in request and checked on return: without it,
+// anyone could make the app sign in with their own token through a crafted link.
+function beginRedirectFlow(): string {
+  const state = crypto.randomUUID();
+  // Without a place to keep the state until the return, the answer of Google would be
+  // rejected and the page reloaded for nothing
+  if (!safeSession.setItem(STATE_KEY, state)) {
+    throw new Error(
+      'Le navigateur refuse de conserver la connexion en cours : utilisez la connexion par fenêtre.'
+    );
+  }
+  return state;
+}
+
+export type RedirectOutcome = 'none' | 'accepted' | 'rejected';
+
+// Handles what Google sent back in the address bar: nothing, a token that is kept, or an
+// answer that is refused (no sign-in was started, wrong state, or an error from Google).
+export function consumeRedirectResponse(): RedirectOutcome {
   const hash = window.location.hash;
-  if (!hash) return false;
+  if (!hash) return 'none';
 
   const params = new URLSearchParams(hash.substring(1));
   const token = params.get('access_token');
-  const expiresIn = params.get('expires_in');
+  // A refusal (#error=...) is cleaned up like an answer carrying a token
+  if (!token && !params.get('error')) return 'none';
 
-  if (token && expiresIn) {
-    accessToken = token;
-    tokenExpiresAt = Date.now() + parseInt(expiresIn, 10) * 1000;
-    persistToken();
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    return true;
+  const expectedState = safeSession.getItem(STATE_KEY);
+  safeSession.removeItem(STATE_KEY);
+  // The token never stays in the address bar, whether it is accepted or not
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  if (!token) return 'rejected';
+
+  const expiresIn = parseInt(params.get('expires_in') ?? '', 10);
+  if (!expectedState || params.get('state') !== expectedState || !Number.isFinite(expiresIn)) {
+    return 'rejected';
   }
 
-  return false;
+  accessToken = token;
+  tokenExpiresAt = Date.now() + expiresIn * 1000;
+  persistToken();
+  return 'accepted';
+}
+
+// What the page shows after such a response: the page is reloaded when Google sends the
+// user back, so the panel is closed and would hide the outcome.
+export function describeRedirectOutcome(outcome: RedirectOutcome): {
+  openPanel: boolean;
+  error: string;
+  success: string;
+} {
+  if (outcome === 'rejected') {
+    return {
+      openPanel: true,
+      error:
+        "La réponse de Google n'a pas pu être vérifiée (connexion non démarrée ici, état différent ou refus) : recommencez la connexion.",
+      success: '',
+    };
+  }
+  if (outcome === 'accepted') return { openPanel: true, error: '', success: 'Connecté à Google Drive' };
+  return { openPanel: false, error: '', success: '' };
+}
+
+export function handleRedirectResponse(): boolean {
+  return consumeRedirectResponse() === 'accepted';
 }
 
 function getRedirectUri(): string {
   return window.location.origin + window.location.pathname;
+}
+
+// Google's error codes, told to the user in French
+function authErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'access_denied':
+      return "L'accès à Google Drive a été refusé : autorisez l'application pour pouvoir sauvegarder.";
+    case 'popup_closed':
+      return 'La fenêtre de connexion Google a été fermée avant la fin de la connexion.';
+    case 'popup_failed_to_open':
+      return "La fenêtre de connexion Google n'a pas pu s'ouvrir (bloquée par le navigateur ?).";
+    default:
+      return 'La connexion à Google a échoué. Réessayez.';
+  }
 }
 
 export function signIn(clientId: string, useRedirect = false): Promise<string> {
@@ -149,7 +273,7 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
       scope: SCOPES,
       callback: (response) => {
         if (response.error) {
-          reject(new Error(`Erreur d'authentification: ${response.error}`));
+          reject(new Error(authErrorMessage(response.error)));
           return;
         }
         accessToken = response.access_token;
@@ -162,9 +286,10 @@ export function signIn(clientId: string, useRedirect = false): Promise<string> {
     if (useRedirect) {
       config.ux_mode = 'redirect';
       config.redirect_uri = getRedirectUri();
+      config.state = beginRedirectFlow();
     } else {
       config.error_callback = (error) => {
-        reject(new Error(`Erreur d'authentification: ${error.type || 'unknown'}`));
+        reject(new Error(authErrorMessage(error.type)));
       };
     }
 
@@ -184,6 +309,17 @@ export function signOut(): void {
 
 // --- Drive API Helpers ---
 
+// The reason Google gives with a refusal ('' when the body says nothing usable)
+async function errorReason(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: { errors?: Array<{ reason?: unknown }> } };
+    const reason = body?.error?.errors?.[0]?.reason;
+    return typeof reason === 'string' ? reason : '';
+  } catch {
+    return '';
+  }
+}
+
 async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   if (!accessToken) throw new Error('Non connecté à Google Drive');
 
@@ -196,10 +332,16 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
     Object.assign(headers, extra);
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch {
+    // The browser's own wording ("Failed to fetch", "Load failed") says nothing to the user
+    throw new Error('Connexion à Google Drive impossible : vérifiez votre connexion internet.');
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
@@ -207,6 +349,24 @@ async function driveApiFetch(url: string, options: RequestInit = {}): Promise<Re
       tokenExpiresAt = 0;
       clearPersistedToken();
       throw new Error('Session expirée. Veuillez vous reconnecter.');
+    }
+    if (response.status === 403) {
+      const reason = await errorReason(response);
+      if (reason === 'storageQuotaExceeded') {
+        throw new Error("L'espace de stockage de votre compte Google est plein : libérez de la place puis réessayez.");
+      }
+      if (/rateLimitExceeded|dailyLimitExceeded/i.test(reason)) {
+        throw new Error('Trop de requêtes vers Google Drive : réessayez dans quelques minutes.');
+      }
+      throw new Error(
+        "Google Drive a refusé l'accès (403) : vérifiez que l'autorisation d'accès à Drive est accordée et que l'API Google Drive est activée pour ce Client ID."
+      );
+    }
+    if (response.status === 429) {
+      throw new Error('Trop de requêtes vers Google Drive : réessayez dans quelques minutes.');
+    }
+    if (response.status >= 500) {
+      throw new Error(`Google Drive est momentanément indisponible (${response.status}) : réessayez dans quelques minutes.`);
     }
     throw new Error(`Erreur Google Drive (${response.status})`);
   }
@@ -271,25 +431,125 @@ async function readBackupFile(fileId: string): Promise<string> {
 
 // --- Public API ---
 
-export async function backupToDrive(): Promise<string> {
+// A failed read (network, 5xx, 403...) throws and cancels the backup: only a file
+// that is really not a backup counts as having nothing to protect.
+async function remoteBackupHasTransactions(fileId: string): Promise<boolean> {
+  const content = await readBackupFile(fileId);
+  try {
+    const data: unknown = JSON.parse(content);
+    const list = (data as { transactions?: unknown } | null)?.transactions;
+    return Array.isArray(list) && list.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+const NOT_SYNCHRONISED_MESSAGE =
+  "Sauvegarde annulée : la sauvegarde Google Drive contient des transactions que cet appareil n'a pas synchronisées (autre appareil, ou première connexion). Vous pouvez la restaurer, mais la restauration remplacera les données de cet appareil : exportez-les d'abord si elles comptent.";
+const UNREADABLE_DATA_MESSAGE =
+  'Sauvegarde annulée : des données locales illisibles ont été écartées, la liste de cet appareil est peut-être incomplète. Téléchargez la copie et acquittez l\'avertissement, ou restaurez Google Drive.';
+
+export class BackupConflictError extends Error {
+  constructor(message = NOT_SYNCHRONISED_MESSAGE) {
+    super(message);
+    this.name = 'BackupConflictError';
+  }
+}
+
+// Unreadable data is set aside while reading, so the list is read first: entries
+// that became unreadable since the last read are noticed before anything is sent.
+function hasUncoveredUnreadableData(): boolean {
+  const copy = getUnreadableDataCopy();
+  return copy !== null && signatureHash(copy) !== getGDriveSettings().coveredUnreadableHash;
+}
+
+async function runBackup(force: boolean): Promise<string> {
   const transactions = getTransactions();
-  const content = JSON.stringify({
-    transactions,
-    exportedAt: new Date().toISOString(),
-  });
+  if (!force && hasUncoveredUnreadableData()) throw new BackupConflictError(UNREADABLE_DATA_MESSAGE);
 
   const existing = await findBackupFile();
+
+  // The file is only replaced when it is the one this device last wrote or restored.
+  // Otherwise (new device, another device backed up since) it may hold data that
+  // would be lost, whatever the local list contains.
+  if (
+    !force &&
+    existing &&
+    existing.modifiedTime !== getGDriveSettings().lastBackupDate &&
+    (await remoteBackupHasTransactions(existing.id))
+  ) {
+    throw new BackupConflictError();
+  }
+
+  // Forced, an empty list still never replaces a backup that holds transactions, even
+  // when the user agreed to overwrite: this device has nothing to offer in exchange
+  // (an up-to-date device that emptied its list is not forced, the guard above lets it pass)
+  if (force && existing && transactions.length === 0 && (await remoteBackupHasTransactions(existing.id))) {
+    throw new Error(
+      "Sauvegarde annulée : la liste de cet appareil est vide alors que la sauvegarde Google Drive contient des transactions. Restaurez-la plutôt."
+    );
+  }
+
+  const content = JSON.stringify({ transactions, exportedAt: new Date().toISOString() });
   const file = existing
     ? await updateBackupFile(existing.id, content)
     : await createBackupFile(content);
 
   const now = file.modifiedTime ?? new Date().toISOString();
-  const settings = getGDriveSettings();
-  saveGDriveSettings({ ...settings, lastBackupDate: now });
+  updateGDriveSettings({ lastBackupDate: now });
   return now;
 }
 
-export async function restoreFromDrive(): Promise<Transaction[]> {
+let backupQueue: Promise<unknown> = Promise.resolve();
+
+// Everything that reads or writes the Drive file goes through one queue: two backups
+// at once could create two files, or let an older state finish last; a restore that
+// read while a backup was overwriting the file would restore the amputated state.
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const result = backupQueue.then(task, task);
+  backupQueue = result.catch(() => undefined);
+  return result;
+}
+
+export function backupToDrive(options: { force?: boolean } = {}): Promise<string> {
+  return enqueue(() => runBackup(options.force === true));
+}
+
+export function restoreFromDrive(): Promise<RestoreResult> {
+  return enqueue(runRestore);
+}
+
+// Called once a restore is really saved locally: this device is then in sync with
+// that file, what is on Drive is what is held here, and the unreadable data that was
+// set aside no longer makes the local list suspect.
+export function recordRestore(restore: { modifiedTime: string | null; transactionsHash: string }): void {
+  const copy = getUnreadableDataCopy();
+  updateGDriveSettings({
+    lastBackupDate: restore.modifiedTime,
+    lastBackedUpHash: restore.transactionsHash,
+    coveredUnreadableHash: copy === null ? null : signatureHash(copy),
+  });
+}
+
+// The fingerprint that the data is compared with to know whether a backup is due:
+// the persisted one, or the current one the first time (and then persisted, so that
+// a change made before a reload is not forgotten).
+export function loadBackedUpBaseline(currentHash: string): string {
+  const stored = getGDriveSettings().lastBackedUpHash;
+  if (stored !== null) return stored;
+  updateGDriveSettings({ lastBackedUpHash: currentHash });
+  return currentHash;
+}
+
+export interface RestoreResult {
+  transactions: Transaction[];
+  skipped: number;
+  // Version of the Drive file that was read. The caller records it as synchronised
+  // once the transactions are really saved locally.
+  modifiedTime: string | null;
+}
+
+async function runRestore(): Promise<RestoreResult> {
   const file = await findBackupFile();
   if (!file) throw new Error('Aucune sauvegarde trouvée sur Google Drive');
 
@@ -302,11 +562,41 @@ export async function restoreFromDrive(): Promise<Transaction[]> {
     throw new Error('Le fichier de sauvegarde est corrompu');
   }
 
-  if (!data.transactions || !Array.isArray(data.transactions)) {
+  if (!data || !Array.isArray(data.transactions)) {
     throw new Error('Le fichier de sauvegarde est invalide');
   }
 
-  return data.transactions as Transaction[];
+  const transactions = dedupeIds(
+    data.transactions.map((t) => normalizeTransaction(t)).filter((tx): tx is Transaction => tx !== null)
+  ).transactions;
+  if (data.transactions.length > 0 && transactions.length === 0) {
+    throw new Error(
+      'Aucune transaction valide dans la sauvegarde : la restauration est annulée, vos données actuelles sont conservées.'
+    );
+  }
+  return {
+    transactions,
+    skipped: data.transactions.length - transactions.length,
+    modifiedTime: file.modifiedTime ?? null,
+  };
+}
+
+export type BackupAttempt =
+  | { ok: true; date: string }
+  | { ok: false; message: string; connected: boolean };
+
+// Backup that reports instead of throwing, with the connection state after the
+// attempt (an expired session must not keep showing as connected).
+export async function attemptBackup(): Promise<BackupAttempt> {
+  try {
+    return { ok: true, date: await backupToDrive() };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : 'Erreur lors de la sauvegarde',
+      connected: isSignedIn(),
+    };
+  }
 }
 
 export async function getBackupInfo(): Promise<{ modifiedTime: string } | null> {

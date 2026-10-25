@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addTransaction, updateTransaction } from '../lib/storage';
 import { Transaction, TransactionType, getReceivedAmount } from '../types/database';
-import { getEurToUsdRate, getUsdToEurRate } from '../lib/exchangeRate';
+import { getEurToUsdRate } from '../lib/exchangeRate';
+import { buildTransactionData } from '../lib/transactionForm';
+import Dialog from './Dialog';
+import Notice from './Notice';
 import { X, Plus, Save } from 'lucide-react';
 
 type PriceCurrency = 'EUR' | 'USD';
@@ -14,6 +17,8 @@ interface TransactionFormProps {
 
 // Value for a datetime-local input (local time, millisecond precision).
 function toDateTimeLocal(date: Date): string {
+  // Imported transactions may carry an empty or invalid date
+  if (Number.isNaN(date.getTime())) date = new Date();
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 23);
 }
@@ -45,10 +50,20 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
     transaction ? String(transaction.price_per_unit) : ''
   );
   const [priceCurrency, setPriceCurrency] = useState<PriceCurrency>('EUR');
-  const [transactionDate, setTransactionDate] = useState(
+  const [initialDate] = useState(() =>
     toDateTimeLocal(transaction ? new Date(transaction.transaction_date) : new Date())
   );
+  const [transactionDate, setTransactionDate] = useState(initialDate);
   const [notes, setNotes] = useState(transaction?.notes ?? '');
+
+  // A rate request can outlive the form: nothing must be saved once it is closed
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,55 +71,23 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
     setLoading(true);
 
     try {
-      const amountNum = parseFloat(amount);
-      const priceNum = parseFloat(pricePerUnit);
-      const totalInput = amountNum * priceNum;
-
-      let priceEur: number;
-      let totalEur: number;
-      let priceUsd: number | null;
-      let totalUsd: number | null;
-
-      if (priceCurrency === 'USD') {
-        const usdToEur = await getUsdToEurRate();
-        if (!usdToEur) {
-          throw new Error('Impossible de récupérer le taux de change USD/EUR. Veuillez réessayer.');
-        }
-        priceEur = priceNum * usdToEur;
-        totalEur = totalInput * usdToEur;
-        priceUsd = priceNum;
-        totalUsd = totalInput;
-      } else if (
-        transaction &&
-        transaction.price_per_unit_usd != null &&
-        priceNum === transaction.price_per_unit
-      ) {
-        // Price untouched: keep the USD value recorded at the time of the transaction
-        priceEur = priceNum;
-        totalEur = totalInput;
-        priceUsd = transaction.price_per_unit_usd;
-        totalUsd = priceUsd * amountNum;
-      } else {
-        const eurToUsd = await getEurToUsdRate();
-        priceEur = priceNum;
-        totalEur = totalInput;
-        priceUsd = eurToUsd ? priceNum * eurToUsd : null;
-        totalUsd = eurToUsd ? totalInput * eurToUsd : null;
-      }
-
-      const data = {
-        transaction_type: transactionType,
-        currency_from: transactionType === 'swap' ? currencyFrom : null,
-        currency_to: currencyTo,
-        amount: amountNum,
-        amount_to: transactionType === 'swap' ? parseFloat(amountTo) : null,
-        price_per_unit: priceEur,
-        total_value: totalEur,
-        price_per_unit_usd: priceUsd,
-        total_value_usd: totalUsd,
-        transaction_date: new Date(transactionDate).toISOString(),
-        notes: notes,
-      };
+      const data = await buildTransactionData(
+        {
+          type: transactionType,
+          currencyFrom,
+          currencyTo,
+          amount,
+          amountTo,
+          pricePerUnit,
+          priceCurrency,
+          transactionDate,
+          initialTransactionDate: initialDate,
+          notes,
+        },
+        getEurToUsdRate,
+        transaction
+      );
+      if (!mounted.current) return;
 
       if (transaction) {
         updateTransaction(transaction.id, data);
@@ -121,30 +104,32 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Dialog titleId="transaction-form-title" onClose={onCancel} className="bg-white rounded-2xl shadow-2xl max-w-2xl">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center rounded-t-2xl">
-          <h2 className="text-2xl font-bold text-gray-900">
+          <h2 id="transaction-form-title" className="text-2xl font-bold text-gray-900">
             {isEditing ? 'Modifier la transaction' : 'Nouvelle transaction'}
           </h2>
           <button
+            type="button"
             onClick={onCancel}
+            aria-label="Fermer"
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X aria-hidden="true" className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <span id="transaction-type-label" className="block text-sm font-medium text-gray-700 mb-2">
               Type de transaction
-            </label>
-            <div className="grid grid-cols-3 gap-3">
+            </span>
+            <div role="group" aria-labelledby="transaction-type-label" className="grid grid-cols-3 gap-3">
               {(['buy', 'sell', 'swap'] as TransactionType[]).map((type) => (
                 <button
                   key={type}
                   type="button"
+                  aria-pressed={transactionType === type}
                   onClick={() => setTransactionType(type)}
                   className={`py-3 px-4 rounded-lg font-medium transition-all ${
                     transactionType === type
@@ -204,7 +189,8 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
               <input
                 id="amount"
                 type="number"
-                step="0.00000001"
+                step="any"
+                min="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 required
@@ -222,7 +208,8 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
                 <input
                   id="pricePerUnit"
                   type="number"
-                  step="0.01"
+                  step="any"
+                  min="0"
                   value={pricePerUnit}
                   onChange={(e) => setPricePerUnit(e.target.value)}
                   required
@@ -230,6 +217,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
                   placeholder="0.00"
                 />
                 <select
+                  aria-label="Devise du prix"
                   value={priceCurrency}
                   onChange={(e) => setPriceCurrency(e.target.value as PriceCurrency)}
                   className="px-3 py-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium text-gray-700"
@@ -249,7 +237,8 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
               <input
                 id="amountTo"
                 type="number"
-                step="0.00000001"
+                step="any"
+                min="0"
                 value={amountTo}
                 onChange={(e) => setAmountTo(e.target.value)}
                 required
@@ -298,9 +287,7 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
+            <Notice tone="error">{error}</Notice>
           )}
 
           <div className="flex gap-3 pt-4">
@@ -316,12 +303,11 @@ export default function TransactionForm({ transaction, onSuccess, onCancel }: Tr
               disabled={loading}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {isEditing ? <Save className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+              {isEditing ? <Save aria-hidden="true" className="w-5 h-5" /> : <Plus aria-hidden="true" className="w-5 h-5" />}
               {loading ? 'Enregistrement...' : 'Enregistrer'}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

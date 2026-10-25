@@ -1,5 +1,7 @@
-import { Transaction } from '../types/database';
 import { useMemo } from 'react';
+import { Transaction } from '../types/database';
+import { computePortfolio } from '../lib/portfolio';
+import { timePositions } from '../lib/format';
 
 interface PerformanceChartProps {
   transactions: Transaction[];
@@ -15,24 +17,12 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
   const chartData = useMemo(() => {
     if (transactions.length === 0) return [];
 
-    const sortedTx = [...transactions].sort(
-      (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
-    );
-
-    let cumulative = 0;
-    const points: DataPoint[] = sortedTx.map((tx) => {
-      if (tx.transaction_type === 'buy') {
-        cumulative += tx.total_value;
-      } else if (tx.transaction_type === 'sell') {
-        cumulative -= tx.total_value;
-      }
-
-      return {
-        date: new Date(tx.transaction_date),
-        value: tx.total_value,
-        cumulativeValue: cumulative,
-      };
-    });
+    // Same cost basis replay as the overview, so both show the same invested total
+    const points: DataPoint[] = computePortfolio(transactions).timeline.map((point) => ({
+      date: new Date(point.transaction.transaction_date),
+      value: point.transaction.total_value,
+      cumulativeValue: point.totalInvested,
+    }));
 
     return points;
   }, [transactions]);
@@ -53,8 +43,10 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
   const minValue = Math.min(...chartData.map((d) => d.cumulativeValue), 0);
   const valueRange = maxValue - minValue || 1;
 
-  const xScale = (index: number) =>
-    padding + (index / (chartData.length - 1 || 1)) * (width - 2 * padding);
+  // Points sit at their date, not at their rank: three years between two purchases
+  // must look like three years
+  const positions = timePositions(chartData.map((d) => d.date.getTime()));
+  const xScale = (index: number) => padding + positions[index] * (width - 2 * padding);
 
   const yScale = (value: number) =>
     height - padding - ((value - minValue) / valueRange) * (height - 2 * padding);
@@ -91,9 +83,9 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-2">Investissement cumulé</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-2">Capital investi dans les positions</h3>
         <p className="text-sm text-gray-600">
-          Évolution de votre investissement total au fil du temps
+          Coût d'acquisition des positions encore détenues : les achats l'augmentent, les ventes le réduisent
         </p>
       </div>
 
@@ -143,9 +135,7 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
                 stroke="white"
                 strokeWidth="2"
               >
-                <title>
-                  {formatDate(point.date)}: {formatValue(point.cumulativeValue)}
-                </title>
+                <title>{`${formatDate(point.date)}: ${formatValue(point.cumulativeValue)}`}</title>
               </circle>
             </g>
           ))}
@@ -177,17 +167,17 @@ export default function PerformanceChart({ transactions }: PerformanceChartProps
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-blue-50 rounded-lg p-3 sm:p-4">
-          <p className="text-sm text-blue-600 font-medium mb-1">Investissement total</p>
+          <p className="text-sm text-blue-600 font-medium mb-1">Capital investi actuel</p>
           <p className="text-xl sm:text-2xl font-bold text-blue-900">
             {formatValue(chartData[chartData.length - 1]?.cumulativeValue || 0)}
           </p>
         </div>
         <div className="bg-green-50 rounded-lg p-3 sm:p-4">
-          <p className="text-sm text-green-600 font-medium mb-1">Plus haut</p>
+          <p className="text-sm text-green-700 font-medium mb-1">Plus haut</p>
           <p className="text-xl sm:text-2xl font-bold text-green-900">{formatValue(maxValue)}</p>
         </div>
         <div className="bg-orange-50 rounded-lg p-3 sm:p-4">
-          <p className="text-sm text-orange-600 font-medium mb-1">Transactions</p>
+          <p className="text-sm text-orange-700 font-medium mb-1">Transactions</p>
           <p className="text-xl sm:text-2xl font-bold text-orange-900">{chartData.length}</p>
         </div>
       </div>
